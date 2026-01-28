@@ -1,0 +1,4 @@
+../Application/User/Core/audio_record_linein_simple.c:64:5:Audio_LoopbackInit	3
+../Application/User/Core/audio_record_linein_simple.c:105:6:BSP_AUDIO_IN_HalfTransfer_CallBack	2
+../Application/User/Core/audio_record_linein_simple.c:116:6:BSP_AUDIO_IN_TransferComplete_CallBack	2
+../Application/User/Core/audio_record_linein_simple.c:128:6:BSP_AUDIO_IN_Error_CallBack	1

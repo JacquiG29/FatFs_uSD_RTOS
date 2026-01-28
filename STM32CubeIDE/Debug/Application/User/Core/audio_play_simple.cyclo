@@ -1,0 +1,9 @@
+../Application/User/Core/audio_play_simple.c:87:5:Audio_Init	2
+../Application/User/Core/audio_play_simple.c:113:6:Audio_StartPlayback	1
+../Application/User/Core/audio_play_simple.c:139:6:Audio_StopPlayback	1
+../Application/User/Core/audio_play_simple.c:157:13:Audio_FillBuffer	5
+../Application/User/Core/audio_play_simple.c:187:6:Audio_Process	4
+../Application/User/Core/audio_play_simple.c:220:6:BSP_AUDIO_OUT_HalfTransfer_CallBack	2
+../Application/User/Core/audio_play_simple.c:236:6:BSP_AUDIO_OUT_TransferComplete_CallBack	2
+../Application/User/Core/audio_play_simple.c:247:6:BSP_AUDIO_OUT_Error_CallBack	1
+../Application/User/Core/audio_play_simple.c:273:6:Audio_GenerateSineWave	5
