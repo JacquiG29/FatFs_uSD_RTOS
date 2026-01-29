@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": false,
+      "externalConsole": true,
+      "cwd": "d:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Projects/STM32H735G-DK/Applications/FatFs/FatFs_uSD_RTOS/Core/Src",
+      "program": "d:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Projects/STM32H735G-DK/Applications/FatFs/FatFs_uSD_RTOS/Core/Src/build/Debug/outDebug",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}

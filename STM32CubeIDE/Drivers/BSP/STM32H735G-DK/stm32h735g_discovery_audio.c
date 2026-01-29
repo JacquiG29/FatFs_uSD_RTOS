@@ -1894,12 +1894,12 @@ int32_t BSP_AUDIO_IN_Init(uint32_t Instance, BSP_AUDIO_Init_t *AudioInit)
           mx_config.ClockStrobing         = SAI_CLOCKSTROBING_FALLINGEDGE;
           mx_config.MonoStereoMode        = (AudioInit->ChannelsNbr == 1U) ? SAI_MONOMODE : SAI_STEREOMODE;
           mx_config.DataSize              = SAI_DATASIZE_16;
-          mx_config.FrameLength           = 128;
-          mx_config.ActiveFrameLength     = 64;
+          mx_config.FrameLength           = 64;//changed: prev:128
+          mx_config.ActiveFrameLength     = 32;//changed: prev:64
           mx_config.OutputDrive           = SAI_OUTPUTDRIVE_ENABLE;
           mx_config.Synchro               = SAI_SYNCHRONOUS;
           mx_config.SynchroExt            = SAI_SYNCEXT_DISABLE;
-          mx_config.SlotActive            = SAI_SLOTACTIVE_0 | SAI_SLOTACTIVE_1;
+          mx_config.SlotActive            = SAI_SLOTACTIVE_0 | SAI_SLOTACTIVE_2;
 
           if (MX_SAI1_Block_A_Init(&haudio_in_sai[Instance], &mx_config) != HAL_OK)
           {
@@ -2428,7 +2428,7 @@ __weak HAL_StatusTypeDef MX_SAI1_Block_A_Init(SAI_HandleTypeDef *hsai, MX_SAI_Co
   {
     hsai->SlotInit.SlotSize         = SAI_SLOTSIZE_16B;
   }
-  hsai->SlotInit.SlotNumber         = 2;
+  hsai->SlotInit.SlotNumber         = 4;//changed: prev:2
   hsai->SlotInit.SlotActive        = MXConfig->SlotActive;
 
   if (HAL_SAI_Init(hsai) != HAL_OK)

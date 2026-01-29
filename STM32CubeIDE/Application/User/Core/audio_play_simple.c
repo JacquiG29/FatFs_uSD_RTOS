@@ -32,7 +32,7 @@
 /* Buffer size: larger = more latency but safer, smaller = lower latency
  * Must be multiple of 4 for DMA alignment
  * At 48kHz stereo: 4096 samples = 4096/(48000*2) = ~42ms of audio */
-#define AUDIO_BUFFER_SIZE       2048
+#define AUDIO_BUFFER_SIZE       4096
 
 /* Audio instance: 0 = SAI (headphone/line out), 1 = other peripherals */
 #define AUDIO_OUT_INSTANCE      0

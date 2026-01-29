@@ -5,5 +5,5 @@
 
 USER_OBJS :=
 
-LIBS := -lPDMFilter_CM7_GCC_wc32
+LIBS := -lPDMFilter_CM7_GCC_wc32 -larm_cortexM7lfdp_math
 

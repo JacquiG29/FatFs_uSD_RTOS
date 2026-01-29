@@ -48,6 +48,8 @@ int16_t RecordBuffer[BUFFER_SIZE];
 __attribute__((section(".RAM_D3"), aligned(32)))
 #endif
 int16_t PlayBuffer[BUFFER_SIZE];
+
+
 /* State flags - set by callbacks, cleared by user task */
 volatile uint8_t HalfReady = 0;
 volatile uint8_t FullReady = 0;
@@ -95,6 +97,25 @@ int Audio_LoopbackInit(void)
     return 0;
 }
 
+int Audio_RecordInit(void)
+{
+    BSP_AUDIO_Init_t AudioInInit;
+    BSP_AUDIO_Init_t AudioOutInit;
+
+    /* Configure audio INPUT (LINE_IN) */
+    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_MIC;  /* LINE_IN jack */
+    AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
+    AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
+    AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
+    AudioInInit.Volume        = AUDIO_VOLUME;
+
+    /* Instance 0 = SAI/LINE_IN (NOT Instance 2 which is DFSDM/digital mics) */
+    if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)
+    {
+        return -1;  /* Failed - check codec I2C connection */
+    }
+    return 0;
+}
 /* -----------------------------------------------------------------------------
  * BSP CALLBACKS - Called from DMA interrupt
  * -------------------------------------------------------------------------- */

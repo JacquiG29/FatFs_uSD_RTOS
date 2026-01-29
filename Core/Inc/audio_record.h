@@ -28,15 +28,18 @@ extern "C" {
 #define AUDIO_SAMPLE_RATE       48000   /* Hz */
 #define AUDIO_VOLUME            80      /* Input gain 0-100 */
 #define BUFFER_SIZE             4096    /* Samples (not bytes) */
+#define BIG_BUFFER_SIZE  0 // 1 second of mono audio (or 0.5s stereo)
 
 /* Buffers - defined in audio_loopback.c, placed in RAM_D3 for DMA */
 extern int16_t RecordBuffer[BUFFER_SIZE];
 extern int16_t PlayBuffer[BUFFER_SIZE];
 
+
 /* State flags - set by DMA callbacks, clear in your task after processing */
 extern volatile uint8_t HalfReady;      /* First half of buffer ready */
 extern volatile uint8_t FullReady;      /* Second half of buffer ready */
 extern volatile uint8_t PlaybackStarted;
+
 
 /* Functions -----------------------------------------------------------------*/
 
