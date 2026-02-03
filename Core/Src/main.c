@@ -70,13 +70,13 @@ static osThreadAttr_t fatfs_attr = {
 
 osThreadId_t AudioTaskHandle;
 static osThreadAttr_t audio_attr = {
-    .priority = osPriorityNormal,
+    .priority = osPriorityAboveNormal,
     .stack_size = 2 * configMINIMAL_STACK_SIZE,
 };
 
 osThreadId_t AudioAnalysisTaskHandle;
 static osThreadAttr_t audio_analysis_attr = {
-    .priority = osPriorityNormal,
+    .priority = osPriorityLow,
     .stack_size = 2 * configMINIMAL_STACK_SIZE,
 };
 
@@ -193,7 +193,7 @@ int main(void)
 */
   // In main.c
   AudioTaskHandle = osThreadNew(Audio_Loopback_Task, NULL, &audio_attr);
-  AudioAnalysisTaskHandle = osThreadNew(Audio_Analysis_Task, NULL, &audio_analysis_attr);
+  //AudioAnalysisTaskHandle = osThreadNew(Audio_Analysis_Task, NULL, &audio_analysis_attr);
 
   /* Start scheduler */
   osKernelStart();
@@ -376,16 +376,31 @@ static void Audio_Loopback_Task(void *argument)
     if (HalfReady)
     {
       /* Copy to playback buffer */
-      memcpy(&PlayBuffer[0], &RecordBuffer[0], BUFFER_SIZE * sizeof(int16_t) / 2);
+     /* memcpy(&PlayBuffer[0], &RecordBuffer[0], BUFFER_SIZE * sizeof(int16_t) / 2);
 
       HalfReady = 0;
-      BSP_LED_Toggle(LED_OK);
+      BSP_LED_Toggle(LED_OK);*/
+    	// Instead of copying from RecordBuffer, generate a sine wave test pattern
+    	    for (int i = 0; i < BUFFER_SIZE/2; i += 2) {
+    	        // Simple triangle wave for testing (easier than sine)
+    	        int16_t sample = (int16_t)((i % 256) * 128 - 16384);
+    	        PlayBuffer[i] = sample;      // Left
+    	        PlayBuffer[i+1] = sample;    // Right
+    	    }
+    	    HalfReady = 0;
+    	    BSP_LED_Toggle(LED_OK);
     }
 
     if (FullReady)
     {
-      memcpy(&PlayBuffer[BUFFER_SIZE / 2], &RecordBuffer[BUFFER_SIZE / 2], BUFFER_SIZE * sizeof(int16_t) / 2);
-      FullReady = 0;
+      /*memcpy(&PlayBuffer[BUFFER_SIZE / 2], &RecordBuffer[BUFFER_SIZE / 2], BUFFER_SIZE * sizeof(int16_t) / 2);
+      FullReady = 0;*/
+        for (int i = BUFFER_SIZE/2; i < BUFFER_SIZE; i += 2) {
+            int16_t sample = (int16_t)((i % 256) * 128 - 16384);
+            PlayBuffer[i] = sample;
+            PlayBuffer[i+1] = sample;
+        }
+        FullReady = 0;
     }
     // Add a small delay if loop is too tight, or rely on RTOS blocking
     // osDelay(1);
@@ -498,6 +513,7 @@ static void MPU_Config(void)
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
   MPU_InitStruct.SubRegionDisable = 0x87;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
   /* ============================================================
        REGION 1: D3 SRAM for AUDIO (Critical for DMA)

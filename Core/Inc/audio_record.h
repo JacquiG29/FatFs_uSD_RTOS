@@ -26,7 +26,7 @@ extern "C" {
 
 /* Configuration -------------------------------------------------------------*/
 #define AUDIO_SAMPLE_RATE       48000   /* Hz */
-#define AUDIO_VOLUME            80      /* Input gain 0-100 */
+#define AUDIO_VOLUME            30      /* Input gain 0-100 */
 #define BUFFER_SIZE             4096    /* Samples (not bytes) */
 #define BIG_BUFFER_SIZE  0 // 1 second of mono audio (or 0.5s stereo)
 

@@ -590,15 +590,16 @@ __weak HAL_StatusTypeDef MX_SAI1_ClockConfig(SAI_HandleTypeDef *hsai, uint32_t S
   }
   else /* AUDIO_FREQUENCY_8K, AUDIO_FREQUENCY_16K, AUDIO_FREQUENCY_32K, AUDIO_FREQUENCY_48K, AUDIO_FREQUENCY_96K */
   {
-    rcc_ex_clk_init_struct.PLL2.PLL2P = 8;
-    rcc_ex_clk_init_struct.PLL2.PLL2Q = 8;
+    rcc_ex_clk_init_struct.PLL2.PLL2P = 8;//Change: prev 8
+    rcc_ex_clk_init_struct.PLL2.PLL2Q = 8;//Change: prev 8
   }
-  rcc_ex_clk_init_struct.PLL2.PLL2N = 80;
+  rcc_ex_clk_init_struct.PLL2.PLL2N = 80;//Change: prev 80
 
   rcc_ex_clk_init_struct.PeriphClockSelection = RCC_PERIPHCLK_SAI1;
   rcc_ex_clk_init_struct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
   rcc_ex_clk_init_struct.PLL2.PLL2R = 2;
-  rcc_ex_clk_init_struct.PLL2.PLL2M = 5;
+
+  rcc_ex_clk_init_struct.PLL2.PLL2M = 80;//Change: prev 80
   rcc_ex_clk_init_struct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_0;
   rcc_ex_clk_init_struct.PLL2.PLL2VCOSEL = RCC_PLL2VCOMEDIUM;
   rcc_ex_clk_init_struct.PLL2.PLL2FRACN = 0;
@@ -1952,8 +1953,10 @@ int32_t BSP_AUDIO_IN_Init(uint32_t Instance, BSP_AUDIO_Init_t *AudioInit)
               codec_init.OutputDevice = (Audio_Out_Ctx[0].State == AUDIO_OUT_STATE_RESET) ? WM8994_OUT_NONE : WM8994_OUT_HEADPHONE;
               codec_init.Frequency    = AudioInit->SampleRate;
               codec_init.Resolution   = (AudioInit->BitsPerSample == AUDIO_RESOLUTION_32B) ? WM8994_RESOLUTION_32b : WM8994_RESOLUTION_16b;
-              codec_init.InputDevice  = (AudioInit->Device == AUDIO_IN_DEVICE_ANALOG_MIC) ? WM8994_IN_LINE1 : WM8994_IN_MIC2;
-
+              //codec_init.InputDevice  = (AudioInit->Device == AUDIO_IN_DEVICE_ANALOG_MIC) ? WM8994_IN_LINE1 : WM8994_IN_MIC2;
+              /* CORRECTED CODE */
+              /* Force WM8994_IN_LINE1 (Blue Jack) for both modes */
+              codec_init.InputDevice = WM8994_IN_LINE1;
               /* Convert volume before sending to the codec */
               codec_init.Volume       = VOLUME_IN_CONVERT(AudioInit->Volume);
               /* Initialize the codec internal registers */

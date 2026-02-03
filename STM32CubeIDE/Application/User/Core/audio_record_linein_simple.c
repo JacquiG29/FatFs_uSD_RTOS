@@ -69,11 +69,11 @@ int Audio_LoopbackInit(void)
     BSP_AUDIO_Init_t AudioOutInit;
 
     /* Configure audio INPUT (LINE_IN) */
-    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_MIC;  /* LINE_IN jack */
+    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_LINE1;  /* LINE_IN jack */
     AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
     AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioInInit.Volume        = AUDIO_VOLUME;
+    AudioInInit.Volume        = 60;
 
     /* Instance 0 = SAI/LINE_IN (NOT Instance 2 which is DFSDM/digital mics) */
     if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)
@@ -87,7 +87,7 @@ int Audio_LoopbackInit(void)
     AudioOutInit.ChannelsNbr   = 2;
     AudioOutInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioOutInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioOutInit.Volume        = 70;
+    AudioOutInit.Volume        = 50;
 
     if (BSP_AUDIO_OUT_Init(0, &AudioOutInit) != BSP_ERROR_NONE)
     {
@@ -100,10 +100,9 @@ int Audio_LoopbackInit(void)
 int Audio_RecordInit(void)
 {
     BSP_AUDIO_Init_t AudioInInit;
-    BSP_AUDIO_Init_t AudioOutInit;
 
     /* Configure audio INPUT (LINE_IN) */
-    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_MIC;  /* LINE_IN jack */
+    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_LINE1;  /* LINE_IN jack */
     AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
     AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
