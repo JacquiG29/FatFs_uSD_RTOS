@@ -5,7 +5,6 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-../Application/User/Core/audio_play_simple.c \
 ../Application/User/Core/audio_record_linein_simple.c \
 D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Projects/STM32H735G-DK/Applications/FatFs/FatFs_uSD_RTOS/Core/Src/main.c \
 D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Projects/STM32H735G-DK/Applications/FatFs/FatFs_uSD_RTOS/Core/Src/stm32h7xx_hal_msp.c \
@@ -15,7 +14,6 @@ D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Projects/STM32H735G-DK/Appl
 ../Application/User/Core/sysmem.c 
 
 OBJS += \
-./Application/User/Core/audio_play_simple.o \
 ./Application/User/Core/audio_record_linein_simple.o \
 ./Application/User/Core/main.o \
 ./Application/User/Core/stm32h7xx_hal_msp.o \
@@ -25,7 +23,6 @@ OBJS += \
 ./Application/User/Core/sysmem.o 
 
 C_DEPS += \
-./Application/User/Core/audio_play_simple.d \
 ./Application/User/Core/audio_record_linein_simple.d \
 ./Application/User/Core/main.d \
 ./Application/User/Core/stm32h7xx_hal_msp.d \
@@ -50,7 +47,7 @@ Application/User/Core/stm32h7xx_it.o: D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_
 clean: clean-Application-2f-User-2f-Core
 
 clean-Application-2f-User-2f-Core:
-	-$(RM) ./Application/User/Core/audio_play_simple.cyclo ./Application/User/Core/audio_play_simple.d ./Application/User/Core/audio_play_simple.o ./Application/User/Core/audio_play_simple.su ./Application/User/Core/audio_record_linein_simple.cyclo ./Application/User/Core/audio_record_linein_simple.d ./Application/User/Core/audio_record_linein_simple.o ./Application/User/Core/audio_record_linein_simple.su ./Application/User/Core/main.cyclo ./Application/User/Core/main.d ./Application/User/Core/main.o ./Application/User/Core/main.su ./Application/User/Core/stm32h7xx_hal_msp.cyclo ./Application/User/Core/stm32h7xx_hal_msp.d ./Application/User/Core/stm32h7xx_hal_msp.o ./Application/User/Core/stm32h7xx_hal_msp.su ./Application/User/Core/stm32h7xx_hal_timebase_tim.cyclo ./Application/User/Core/stm32h7xx_hal_timebase_tim.d ./Application/User/Core/stm32h7xx_hal_timebase_tim.o ./Application/User/Core/stm32h7xx_hal_timebase_tim.su ./Application/User/Core/stm32h7xx_it.cyclo ./Application/User/Core/stm32h7xx_it.d ./Application/User/Core/stm32h7xx_it.o ./Application/User/Core/stm32h7xx_it.su ./Application/User/Core/syscalls.cyclo ./Application/User/Core/syscalls.d ./Application/User/Core/syscalls.o ./Application/User/Core/syscalls.su ./Application/User/Core/sysmem.cyclo ./Application/User/Core/sysmem.d ./Application/User/Core/sysmem.o ./Application/User/Core/sysmem.su
+	-$(RM) ./Application/User/Core/audio_record_linein_simple.cyclo ./Application/User/Core/audio_record_linein_simple.d ./Application/User/Core/audio_record_linein_simple.o ./Application/User/Core/audio_record_linein_simple.su ./Application/User/Core/main.cyclo ./Application/User/Core/main.d ./Application/User/Core/main.o ./Application/User/Core/main.su ./Application/User/Core/stm32h7xx_hal_msp.cyclo ./Application/User/Core/stm32h7xx_hal_msp.d ./Application/User/Core/stm32h7xx_hal_msp.o ./Application/User/Core/stm32h7xx_hal_msp.su ./Application/User/Core/stm32h7xx_hal_timebase_tim.cyclo ./Application/User/Core/stm32h7xx_hal_timebase_tim.d ./Application/User/Core/stm32h7xx_hal_timebase_tim.o ./Application/User/Core/stm32h7xx_hal_timebase_tim.su ./Application/User/Core/stm32h7xx_it.cyclo ./Application/User/Core/stm32h7xx_it.d ./Application/User/Core/stm32h7xx_it.o ./Application/User/Core/stm32h7xx_it.su ./Application/User/Core/syscalls.cyclo ./Application/User/Core/syscalls.d ./Application/User/Core/syscalls.o ./Application/User/Core/syscalls.su ./Application/User/Core/sysmem.cyclo ./Application/User/Core/sysmem.d ./Application/User/Core/sysmem.o ./Application/User/Core/sysmem.su
 
 .PHONY: clean-Application-2f-User-2f-Core
 

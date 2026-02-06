@@ -22,8 +22,12 @@
 
 #include "main.h"
 #include "audio_record.h"
+#include "stm32h735g_discovery_bus.h"  /* For BSP_I2C4_WriteReg16 */
 #include <string.h>
-
+/* Add these includes if missing */
+#include "stm32h735g_discovery_audio.h"
+#include "../Components/wm8994/wm8994.h"
+#include "stm32h735g_discovery_errno.h"
 /* -----------------------------------------------------------------------------
  * BUFFERS - Must be in D3 SRAM for DMA access
  * -------------------------------------------------------------------------- */
@@ -55,6 +59,11 @@ volatile uint8_t HalfReady = 0;
 volatile uint8_t FullReady = 0;
 volatile uint8_t PlaybackStarted = 0;
 
+
+/* Externs to access the handles defined in stm32h735g_discovery_audio.c */
+extern SAI_HandleTypeDef haudio_out_sai; // SAI1 Block A
+extern SAI_HandleTypeDef haudio_in_sai[0];  // SAI1 Block B
+extern void *Audio_CompObj;              // The driver object
 /* -----------------------------------------------------------------------------
  * INITIALIZATION
  * -------------------------------------------------------------------------- */
@@ -80,7 +89,6 @@ int Audio_LoopbackInit(void)
     {
         return -1;  /* Failed - check codec I2C connection */
     }
-    //BSP_AUDIO_IN_GetState(2, &AudioInInit);
 
     /* Configure audio OUTPUT (Headphone) */
     AudioOutInit.Device        = AUDIO_OUT_DEVICE_HEADPHONE;
@@ -97,24 +105,7 @@ int Audio_LoopbackInit(void)
     return 0;
 }
 
-int Audio_RecordInit(void)
-{
-    BSP_AUDIO_Init_t AudioInInit;
 
-    /* Configure audio INPUT (LINE_IN) */
-    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_LINE1;  /* LINE_IN jack */
-    AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
-    AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
-    AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioInInit.Volume        = AUDIO_VOLUME;
-
-    /* Instance 0 = SAI/LINE_IN (NOT Instance 2 which is DFSDM/digital mics) */
-    if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)
-    {
-        return -1;  /* Failed - check codec I2C connection */
-    }
-    return 0;
-}
 /* -----------------------------------------------------------------------------
  * BSP CALLBACKS - Called from DMA interrupt
  * -------------------------------------------------------------------------- */
@@ -151,3 +142,81 @@ void BSP_AUDIO_IN_Error_CallBack(uint32_t Instance)
 }
 
 /* NOTE: BSP_AUDIO_OUT callbacks are defined in audio_play_simple.c */
+
+/* WM8994 I2C address (7-bit shifted left = 0x34) */
+#define WM8994_I2C_ADDR  0x34
+
+/**
+ * @brief  Helper to write a 16-bit value to WM8994 register
+ *         Handles byte swapping required by codec
+ */
+static int WM8994_WriteReg(uint16_t reg, uint16_t value)
+{
+    /* WM8994 expects data in big-endian format (MSB first) */
+    uint8_t data[2];
+    data[0] = (value >> 8) & 0xFF;  /* MSB */
+    data[1] = value & 0xFF;         /* LSB */
+
+    if (BSP_I2C4_WriteReg16(WM8994_I2C_ADDR, reg, data, 2) != BSP_ERROR_NONE)
+        return -1;
+
+    return 0;
+}
+
+
+/**
+ * @brief  Fixes Line-In configuration:
+ * 1. Enables VMID (Critical for negative cycle)
+ * 2. Enables Analog Input Mixers
+ * 3. Disables the +30dB Microphone Boost
+ */
+int Audio_FixLineInConfig(void)
+{
+    // --- STEP 1: Enable VMID and Bias (Register 0x01) ---
+    // Bit 2 (BIAS_ENA): 1 (Enable Master Bias)
+    // Bits 1:0 (VMID_SEL): 11 (Enable VMID 2x5k divider for fast start)
+    // Without this, the input pin sits at 0V and clips negative audio.
+    if (WM8994_WriteReg(0x01, 0x0007) != 0) return -1;
+
+    // --- STEP 2: Enable Analog Input Paths (Register 0x02) ---
+    // Bit 9 (MIXINL_ENA): 1 (Left Input Mixer Enable)
+    // Bit 8 (MIXINR_ENA): 1 (Right Input Mixer Enable)
+    // Bit 5 (IN1L_ENA):   1 (Left Input PGA Enable)
+    // Bit 4 (IN1R_ENA):   1 (Right Input PGA Enable)
+    uint16_t power2_cfg = 0x3330;//0x0330
+    if (WM8994_WriteReg(0x02, power2_cfg) != 0) return -2;
+
+    // --- STEP 3: Connect Line-In to Mixer & Disable Boost (Reg 0x29 & 0x2A) ---
+    /* WM8994 INPUT_MIXER_3 (0x29) and INPUT_MIXER_4 (0x2A)
+     * Current value: 0x0035 = IN1L_TO_MIXINL(bit5) + IN1L_MIXINL_VOL(bit4=+30dB) + mixer_vol(bits0-2)
+     * New value: 0x0020 = IN1L_TO_MIXINL only (0dB boost)
+     *
+     * Bit 5: IN1L_TO_MIXINL - Route IN1L to MIXINL (must be 1)
+     * Bit 4: IN1L_MIXINL_VOL - 0=0dB, 1=+30dB (set to 0 to disable boost)
+     * Bits 0-2: MIXOUTL_MIXINL_VOL - Output mixer record volume
+     */
+	uint16_t line_in_cfg = 0x0020; // 0b0000_0000_0010_0000
+
+	// Configure LEFT channel
+	if (WM8994_WriteReg(0x0029, line_in_cfg) != 0) return -1;
+
+	// Configure RIGHT channel (if recording stereo)
+	if (WM8994_WriteReg(0x002A, line_in_cfg) != 0) return -1;
+
+    /* Also disable DRC (Dynamic Range Compressor) which might be clipping
+     * Register 0x440 = AIF1_DRC1 - set to 0x0098 to disable DRC
+     * Default was 0x00DB which enables DRC with signal detect
+     */
+    if (WM8994_WriteReg(0x0440, 0x0098) != 0)
+        return -3;
+
+    /* Reduce LINE_IN PGA gain to prevent any remaining clipping
+     * Register 0x18/0x1A: Set to 0x03 for -12dB (from 0dB default of 0x0B)
+     */
+    if (WM8994_WriteReg(0x0018, 0x0003) != 0)
+        return -4;
+    if (WM8994_WriteReg(0x001A, 0x0003) != 0)
+        return -5;
+    return 0; // Success
+}
+

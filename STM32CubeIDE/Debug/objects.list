@@ -1,5 +1,4 @@
 "./Application/Startup/startup_stm32h735igkx.o"
-"./Application/User/Core/audio_play_simple.o"
 "./Application/User/Core/audio_record_linein_simple.o"
 "./Application/User/Core/main.o"
 "./Application/User/Core/stm32h7xx_hal_msp.o"

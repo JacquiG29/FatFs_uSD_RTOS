@@ -80,9 +80,21 @@ static osThreadAttr_t audio_analysis_attr = {
     .stack_size = 2 * configMINIMAL_STACK_SIZE,
 };
 
+osThreadId_t AudioRecordToSDTaskHandle;
+static osThreadAttr_t audio_record_sd_attr = {
+    .priority = osPriorityNormal,
+    .stack_size = 4 * configMINIMAL_STACK_SIZE,  /* Larger stack for FatFs */
+};
+
 /* USER CODE BEGIN PV */
 int32_t ProcessStatus = 0;
 UART_HandleTypeDef huart3;
+
+/* Audio recording to SD card variables */
+#define RECORD_DURATION_SECONDS  5
+#define SAMPLES_TO_RECORD  (AUDIO_SAMPLE_RATE * RECORD_DURATION_SECONDS * 2)  /* *2 for stereo */
+volatile uint8_t g_StartRecording = 0;  /* Set to 1 to start recording */
+volatile uint8_t g_RecordingComplete = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,6 +115,7 @@ static void Audio_Play_Task(void *argument);
 static void Audio_Record_Task(void *argument);
 static void MX_USART3_UART_Init(void);
 static void Audio_Analysis_Task(void *argument);
+static void Audio_Record_To_SD_Task(void *argument);
 /* USER CODE BEGIN PFP */
 uint32_t loop_count = 0;
 /* USER CODE END PFP */
@@ -166,7 +179,7 @@ int main(void)
   osKernelInitialize();
 
   UART_Print("\r\n AUDIO CONFIG\r\n");
-  if (Audio_LoopbackInit() != 0)
+  if(Audio_LoopbackInit() != 0)
   {
     UART_Print("\r\n ERROR AUDIO\r\n");
     while (1)
@@ -175,6 +188,9 @@ int main(void)
       HAL_Delay(100);
     }
   }
+
+  /* NOTE: Audio_DisableInputBoost() removed - was causing noise issues */
+
   UART_Print("\r\n END CONFIG\r\n");
 
   UART_Print("Entering main loop...\r\n");
@@ -191,9 +207,11 @@ int main(void)
   fatfs_attr.name = "STATUS";
   StatusThreadHandle = osThreadNew(STATUS_Thread, NULL, (const osThreadAttr_t *)&fatfs_attr);
 */
-  // In main.c
+  // In main.c - Start audio loopback (needed to generate SAI clock for recording)
   AudioTaskHandle = osThreadNew(Audio_Loopback_Task, NULL, &audio_attr);
-  //AudioAnalysisTaskHandle = osThreadNew(Audio_Analysis_Task, NULL, &audio_analysis_attr);
+
+  // Start SD card recording task - will record 5 seconds of raw audio
+  AudioRecordToSDTaskHandle = osThreadNew(Audio_Record_To_SD_Task, NULL, &audio_record_sd_attr);
 
   /* Start scheduler */
   osKernelStart();
@@ -335,75 +353,34 @@ static void STATUS_Thread(void *argument)
 
 static void Audio_Loopback_Task(void *argument)
 {
-  if (loop_count == 0)
-  {
-    UART_Print("Audio task init \r\n");
-    loop_count = 1;
-  }
+  UART_Print("Audio task init \r\n");
+
   // Clear buffers to ensure we play silence initially
   memset(RecordBuffer, 0, sizeof(RecordBuffer));
   memset(PlayBuffer, 0, sizeof(PlayBuffer));
 
-  /* 3. CRITICAL FIX: Start Playback FIRST to generate the SAI Clock */
+  /* Start Playback FIRST to generate the SAI Clock */
   // This starts the SAI Master, which sends the Clock to the SAI Slave (Record)
   if (BSP_AUDIO_OUT_Play(0, (uint8_t *)PlayBuffer, BUFFER_SIZE * sizeof(int16_t)) != 0)
   {
     UART_Print("Audio Play Init Error\r\n");
     Error_Handler();
   }
-  PlaybackStarted = 1; // Mark as started so we don't start it again in the loop
+  PlaybackStarted = 1;
 
-  /* 4. Start Recording */
+  /* Start Recording */
   if (BSP_AUDIO_IN_Record(0, (uint8_t *)RecordBuffer, BUFFER_SIZE * sizeof(int16_t)) != 0)
   {
     UART_Print("Audio Record Init Error\r\n");
     Error_Handler();
   }
 
-  UART_Print("Audio Loopback Started\r\n");
-  /* =========================================
-   * Main loop - copy recorded data to playback
-   * ========================================= */
+  UART_Print("Audio Recording Started - SD task will handle data\r\n");
+
+  /* This task just keeps audio running, SD task handles the data */
   while (1)
   {
-
-    if (loop_count == 0)
-    {
-      UART_Print("Audio loop init \r\n");
-      loop_count = 1;
-    }
-
-    if (HalfReady)
-    {
-      /* Copy to playback buffer */
-     /* memcpy(&PlayBuffer[0], &RecordBuffer[0], BUFFER_SIZE * sizeof(int16_t) / 2);
-
-      HalfReady = 0;
-      BSP_LED_Toggle(LED_OK);*/
-    	// Instead of copying from RecordBuffer, generate a sine wave test pattern
-    	    for (int i = 0; i < BUFFER_SIZE/2; i += 2) {
-    	        // Simple triangle wave for testing (easier than sine)
-    	        int16_t sample = (int16_t)((i % 256) * 128 - 16384);
-    	        PlayBuffer[i] = sample;      // Left
-    	        PlayBuffer[i+1] = sample;    // Right
-    	    }
-    	    HalfReady = 0;
-    	    BSP_LED_Toggle(LED_OK);
-    }
-
-    if (FullReady)
-    {
-      /*memcpy(&PlayBuffer[BUFFER_SIZE / 2], &RecordBuffer[BUFFER_SIZE / 2], BUFFER_SIZE * sizeof(int16_t) / 2);
-      FullReady = 0;*/
-        for (int i = BUFFER_SIZE/2; i < BUFFER_SIZE; i += 2) {
-            int16_t sample = (int16_t)((i % 256) * 128 - 16384);
-            PlayBuffer[i] = sample;
-            PlayBuffer[i+1] = sample;
-        }
-        FullReady = 0;
-    }
-    // Add a small delay if loop is too tight, or rely on RTOS blocking
-    // osDelay(1);
+    osDelay(100);  /* Just keep task alive */
   }
 }
 
@@ -466,6 +443,116 @@ static void Audio_Analysis_Task(void *argument)
         //osDelay(10); // Yield
     }
 }
+
+/**
+ * @brief  Task to record raw audio data to SD card for analysis
+ *         Records 5 seconds of raw PCM data to "AUDIO.RAW"
+ *         Format: 16-bit signed, stereo, 48kHz
+ * @param  argument: Not used
+ * @retval None
+ */
+static void Audio_Record_To_SD_Task(void *argument)
+{
+    FATFS SDFatFs;
+    FIL AudioFile;
+    FRESULT fres;
+    UINT bytesWritten;
+    uint32_t totalSamplesWritten = 0;
+    uint32_t targetSamples = SAMPLES_TO_RECORD;
+    char msg[64];
+
+    UART_Print("SD Record Task Started\r\n");
+
+    /* Wait a bit for system to stabilize */
+    osDelay(1000);
+
+    /* Check if SD card is present */
+    if (BSP_SD_IsDetected(0) != SD_PRESENT)
+    {
+        UART_Print("ERROR: No SD card detected!\r\n");
+        while(1) {
+        	BSP_LED_Toggle(LED_ERROR);
+        	      osDelay(200);}
+    }
+
+    /* Mount the file system */
+    fres = f_mount(&SDFatFs, "", 1);
+    if (fres != FR_OK)
+    {
+        sprintf(msg, "ERROR: f_mount failed: %d\r\n", fres);
+        UART_Print(msg);
+        while(1) { osDelay(1000); }
+    }
+    UART_Print("SD card mounted OK\r\n");
+
+    /* Create/Open file for writing */
+    fres = f_open(&AudioFile, "AUDIO.RAW", FA_CREATE_ALWAYS | FA_WRITE);
+    if (fres != FR_OK)
+    {
+        sprintf(msg, "ERROR: f_open failed: %d\r\n", fres);
+        UART_Print(msg);
+        f_mount(NULL, "", 0);
+        while(1) { osDelay(1000); }
+    }
+    UART_Print("File AUDIO.RAW created\r\n");
+    UART_Print("Recording 5 seconds of audio...\r\n");
+
+    /* Main recording loop */
+    while (totalSamplesWritten < targetSamples)
+    {
+        if (HalfReady)
+        {
+            /* Write first half of buffer */
+            fres = f_write(&AudioFile, &RecordBuffer[0],
+                          (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
+            if (fres != FR_OK)
+            {
+                sprintf(msg, "Write error: %d\r\n", fres);
+                UART_Print(msg);
+                break;
+            }
+            totalSamplesWritten += BUFFER_SIZE / 2;
+            HalfReady = 0;
+            BSP_LED_Toggle(LED_OK);
+        }
+
+        if (FullReady)
+        {
+            /* Write second half of buffer */
+            fres = f_write(&AudioFile, &RecordBuffer[BUFFER_SIZE / 2],
+                          (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
+            if (fres != FR_OK)
+            {
+                sprintf(msg, "Write error: %d\r\n", fres);
+                UART_Print(msg);
+                break;
+            }
+            totalSamplesWritten += BUFFER_SIZE / 2;
+            FullReady = 0;
+        }
+
+        osDelay(1);  /* Yield to other tasks */
+    }
+
+    /* Close file */
+    f_close(&AudioFile);
+    f_mount(NULL, "", 0);
+
+    sprintf(msg, "Recording complete! %lu samples written\r\n", totalSamplesWritten);
+    UART_Print(msg);
+    UART_Print("File saved as AUDIO.RAW\r\n");
+    UART_Print("Import in Audacity: Raw Data, Signed 16-bit PCM, Stereo, 48000Hz\r\n");
+
+    g_RecordingComplete = 1;
+    BSP_LED_On(LED_OK);
+
+    /* Task complete - idle forever */
+    while(1)
+    {
+        osDelay(1000);
+    }
+}
+
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */

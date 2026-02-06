@@ -553,7 +553,7 @@ __weak HAL_StatusTypeDef MX_SAI1_Block_B_Init(SAI_HandleTypeDef *hsai, MX_SAI_Co
   {
     hsai->SlotInit.SlotSize         = SAI_SLOTSIZE_16B;
   }
-  hsai->SlotInit.SlotNumber         = 4;
+  hsai->SlotInit.SlotNumber         = 4;  /* WM8994 TDM mode: 4 slots */
   hsai->SlotInit.SlotActive         = MXConfig->SlotActive;
 
   if (HAL_SAI_Init(hsai) != HAL_OK)
@@ -1953,10 +1953,24 @@ int32_t BSP_AUDIO_IN_Init(uint32_t Instance, BSP_AUDIO_Init_t *AudioInit)
               codec_init.OutputDevice = (Audio_Out_Ctx[0].State == AUDIO_OUT_STATE_RESET) ? WM8994_OUT_NONE : WM8994_OUT_HEADPHONE;
               codec_init.Frequency    = AudioInit->SampleRate;
               codec_init.Resolution   = (AudioInit->BitsPerSample == AUDIO_RESOLUTION_32B) ? WM8994_RESOLUTION_32b : WM8994_RESOLUTION_16b;
+
+              /* Matching F7 Logic: Dynamic Selection */
+              if (AudioInit->Device == AUDIO_IN_DEVICE_ANALOG_LINE1)
+              {
+                  codec_init.InputDevice = WM8994_IN_LINE1; // Blue Jack
+              }
+              else if (AudioInit->Device == AUDIO_IN_DEVICE_ANALOG_MIC)
+              {
+                  codec_init.InputDevice = WM8994_IN_MIC2;  // On-board Mic
+              }
+              else
+              {
+                  codec_init.InputDevice = WM8994_IN_LINE1; // Default fallback
+              }
               //codec_init.InputDevice  = (AudioInit->Device == AUDIO_IN_DEVICE_ANALOG_MIC) ? WM8994_IN_LINE1 : WM8994_IN_MIC2;
               /* CORRECTED CODE */
               /* Force WM8994_IN_LINE1 (Blue Jack) for both modes */
-              codec_init.InputDevice = WM8994_IN_LINE1;
+              //codec_init.InputDevice = WM8994_IN_LINE1;
               /* Convert volume before sending to the codec */
               codec_init.Volume       = VOLUME_IN_CONVERT(AudioInit->Volume);
               /* Initialize the codec internal registers */
@@ -2431,7 +2445,7 @@ __weak HAL_StatusTypeDef MX_SAI1_Block_A_Init(SAI_HandleTypeDef *hsai, MX_SAI_Co
   {
     hsai->SlotInit.SlotSize         = SAI_SLOTSIZE_16B;
   }
-  hsai->SlotInit.SlotNumber         = 4;//changed: prev:2
+  hsai->SlotInit.SlotNumber         = 4;  /* WM8994 TDM mode: 4 slots */
   hsai->SlotInit.SlotActive        = MXConfig->SlotActive;
 
   if (HAL_SAI_Init(hsai) != HAL_OK)

@@ -48,6 +48,8 @@ extern volatile uint8_t PlaybackStarted;
  * @retval 0 on success, negative on failure
  */
 int Audio_LoopbackInit(void);
+int Audio_FixLineInConfig(void);
+int Audio_Unified_Init(uint32_t AudioFreq);
 
 #ifdef __cplusplus
 }
