@@ -13,7 +13,7 @@
  * Usage:
  *   1. Call Audio_LoopbackInit() to initialize both input and output
  *   2. Call BSP_AUDIO_IN_Record() to start recording
- *   3. Poll HalfReady/FullReady flags in your task
+ *   3. Poll audio_rec_buffer_state in your task loop
  *   4. Copy RecordBuffer to PlayBuffer with cache management
  *   5. Call BSP_AUDIO_OUT_Play() once when first data is ready
  *
@@ -28,6 +28,7 @@
 #include "stm32h735g_discovery_audio.h"
 #include "../Components/wm8994/wm8994.h"
 #include "stm32h735g_discovery_errno.h"
+extern SAI_HandleTypeDef haudio_out_sai;
 /* -----------------------------------------------------------------------------
  * BUFFERS - Must be in D3 SRAM for DMA access
  * -------------------------------------------------------------------------- */
@@ -54,20 +55,15 @@ __attribute__((section(".RAM_D3"), aligned(32)))
 int16_t PlayBuffer[BUFFER_SIZE];
 
 
-/* State flags - set by callbacks, cleared by user task */
-volatile uint8_t HalfReady = 0;
-volatile uint8_t FullReady = 0;
+/* State flag - single state variable */
+/* Defined in main.c, extern here */
+extern volatile uint32_t audio_rec_buffer_state;
+/* Keep PlaybackStarted here since Audio_LoopbackInit is in this file */
 volatile uint8_t PlaybackStarted = 0;
 
-
-/* Externs to access the handles defined in stm32h735g_discovery_audio.c */
-extern SAI_HandleTypeDef haudio_out_sai; // SAI1 Block A
-extern SAI_HandleTypeDef haudio_in_sai[0];  // SAI1 Block B
-extern void *Audio_CompObj;              // The driver object
 /* -----------------------------------------------------------------------------
  * INITIALIZATION
  * -------------------------------------------------------------------------- */
-
 /**
  * @brief Initialize audio loopback (LINE_IN input + headphone output)
  * @retval 0 on success, negative on failure
@@ -76,20 +72,6 @@ int Audio_LoopbackInit(void)
 {
     BSP_AUDIO_Init_t AudioInInit;
     BSP_AUDIO_Init_t AudioOutInit;
-
-    /* Configure audio INPUT (LINE_IN) */
-    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_LINE1;  /* LINE_IN jack */
-    AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
-    AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
-    AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioInInit.Volume        = 60;
-
-    /* Instance 0 = SAI/LINE_IN (NOT Instance 2 which is DFSDM/digital mics) */
-    if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)
-    {
-        return -1;  /* Failed - check codec I2C connection */
-    }
-
     /* Configure audio OUTPUT (Headphone) */
     AudioOutInit.Device        = AUDIO_OUT_DEVICE_HEADPHONE;
     AudioOutInit.ChannelsNbr   = 2;
@@ -100,6 +82,20 @@ int Audio_LoopbackInit(void)
     if (BSP_AUDIO_OUT_Init(0, &AudioOutInit) != BSP_ERROR_NONE)
     {
         return -2;  /* Failed */
+    }
+
+
+    /* Configure audio INPUT (LINE_IN) */
+    AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_LINE1;  /* LINE_IN jack */
+    AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
+    AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
+    AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
+    AudioInInit.Volume        = 100;
+
+    /* Instance 0 = SAI/LINE_IN (NOT Instance 2 which is DFSDM/digital mics) */
+    if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)
+    {
+        return -1;  /* Failed - check codec I2C connection */
     }
 
     return 0;
@@ -117,8 +113,7 @@ void BSP_AUDIO_IN_HalfTransfer_CallBack(uint32_t Instance)
 {
   if (Instance == 0)
   {
-    //SCB_InvalidateDCache_by_Addr((uint32_t*)&RecordBuffer[0], (BUFFER_SIZE/2)*sizeof(int16_t));
-    HalfReady = 1;
+    audio_rec_buffer_state = 1;  /* BUFFER_OFFSET_HALF */
   }
 }
 /**
@@ -128,8 +123,7 @@ void BSP_AUDIO_IN_TransferComplete_CallBack(uint32_t Instance)
 {
   if (Instance == 0)
   {
-    //SCB_InvalidateDCache_by_Addr((uint32_t*)&RecordBuffer[BUFFER_SIZE/2], (BUFFER_SIZE/2)*sizeof(int16_t));
-    FullReady = 1;
+    audio_rec_buffer_state = 2;  /* BUFFER_OFFSET_FULL */
   }
 }
 
@@ -140,9 +134,10 @@ void BSP_AUDIO_IN_Error_CallBack(uint32_t Instance)
 {
     (void)Instance;
 }
-
-/* NOTE: BSP_AUDIO_OUT callbacks are defined in audio_play_simple.c */
-
+/* -----------------------------------------------------------------------------
+ * WM8994 - Override some configurations of the original library
+ * Not used for the moment, changes where done directly on the original file
+ * -------------------------------------------------------------------------- */
 /* WM8994 I2C address (7-bit shifted left = 0x34) */
 #define WM8994_I2C_ADDR  0x34
 

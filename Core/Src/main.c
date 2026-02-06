@@ -30,6 +30,10 @@
  * --------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "audio_record.h" /* Provides Audio_LoopbackInit() and buffers */
+#include "stm32h735g_discovery_audio.h"
+#include "../Components/wm8994/wm8994.h"
+#include "stm32h735g_discovery_errno.h"
+extern SAI_HandleTypeDef haudio_out_sai;
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,6 +41,16 @@
 /* Defines */
 #define FFT_SIZE  1024  // Size of FFT (must be power of 2: 256, 512, 1024, 2048)
 #define SAMPLE_RATE 48000
+
+/* ---- Buffer state enum (same pattern as reference) ---- */
+typedef enum
+{
+  BUFFER_OFFSET_NONE = 0,
+  BUFFER_OFFSET_HALF = 1,
+  BUFFER_OFFSET_FULL = 2,
+} BUFFER_StateTypeDef;
+
+volatile uint32_t audio_rec_buffer_state = BUFFER_OFFSET_NONE;
 
 /* Global FFT Variables */
 arm_rfft_fast_instance_f32 fft_handler;
@@ -48,6 +62,17 @@ float32_t fft_magnitude[FFT_SIZE / 2];  // Magnitude result
 void DSP_Init(void) {
     arm_rfft_fast_init_f32(&fft_handler, FFT_SIZE);
 }
+static void ConvertSampleBufferToDMABuffer(int16_t * sampleBuffer, uint8_t * dmaBuffer, uint32_t num_samples);
+
+#define MY_DMA_BYTES_PER_FRAME 8
+#define MY_DMA_BYTES_PER_MSIZE 2
+#define MY_DMA_BUFFER_SIZE_BYTES BUFFER_SIZE * MY_DMA_BYTES_PER_FRAME
+#define MY_DMA_BUFFER_SIZE_MSIZES MY_DMA_BUFFER_SIZE_BYTES / MY_DMA_BYTES_PER_MSIZE
+
+static int16_t playbackBuffer[BUFFER_SIZE];
+static uint8_t saiDMATransmitBuffer[MY_DMA_BUFFER_SIZE_BYTES];
+static uint32_t frequency = AUDIO_FREQUENCY_48K;
+
 
 /* USER CODE END PTD */
 
@@ -71,7 +96,7 @@ static osThreadAttr_t fatfs_attr = {
 osThreadId_t AudioTaskHandle;
 static osThreadAttr_t audio_attr = {
     .priority = osPriorityAboveNormal,
-    .stack_size = 2 * configMINIMAL_STACK_SIZE,
+    .stack_size = 4 * configMINIMAL_STACK_SIZE,  /* Needs room for FatFs + audio */
 };
 
 osThreadId_t AudioAnalysisTaskHandle;
@@ -80,11 +105,7 @@ static osThreadAttr_t audio_analysis_attr = {
     .stack_size = 2 * configMINIMAL_STACK_SIZE,
 };
 
-osThreadId_t AudioRecordToSDTaskHandle;
-static osThreadAttr_t audio_record_sd_attr = {
-    .priority = osPriorityNormal,
-    .stack_size = 4 * configMINIMAL_STACK_SIZE,  /* Larger stack for FatFs */
-};
+/* Audio_Record_To_SD_Task removed — SD recording merged into Audio_Loopback_Task */
 
 /* USER CODE BEGIN PV */
 int32_t ProcessStatus = 0;
@@ -115,7 +136,7 @@ static void Audio_Play_Task(void *argument);
 static void Audio_Record_Task(void *argument);
 static void MX_USART3_UART_Init(void);
 static void Audio_Analysis_Task(void *argument);
-static void Audio_Record_To_SD_Task(void *argument);
+/* Audio_Record_To_SD_Task removed — merged into Audio_Loopback_Task */
 /* USER CODE BEGIN PFP */
 uint32_t loop_count = 0;
 /* USER CODE END PFP */
@@ -210,8 +231,7 @@ int main(void)
   // In main.c - Start audio loopback (needed to generate SAI clock for recording)
   AudioTaskHandle = osThreadNew(Audio_Loopback_Task, NULL, &audio_attr);
 
-  // Start SD card recording task - will record 5 seconds of raw audio
-  AudioRecordToSDTaskHandle = osThreadNew(Audio_Record_To_SD_Task, NULL, &audio_record_sd_attr);
+  /* SD recording now handled inside Audio_Loopback_Task */
 
   /* Start scheduler */
   osKernelStart();
@@ -353,20 +373,36 @@ static void STATUS_Thread(void *argument)
 
 static void Audio_Loopback_Task(void *argument)
 {
+  FATFS SDFatFs;
+  FIL AudioFile;
+  FRESULT fres;
+  UINT bytesWritten;
+  uint32_t totalSamplesWritten = 0;
+  uint32_t targetSamples = SAMPLES_TO_RECORD;
+  uint8_t sd_recording = 0;
+  char msg[64];
+
   UART_Print("Audio task init \r\n");
 
-  // Clear buffers to ensure we play silence initially
+  /* Clear buffers to ensure we play silence initially */
   memset(RecordBuffer, 0, sizeof(RecordBuffer));
   memset(PlayBuffer, 0, sizeof(PlayBuffer));
 
   /* Start Playback FIRST to generate the SAI Clock */
-  // This starts the SAI Master, which sends the Clock to the SAI Slave (Record)
+
   if (BSP_AUDIO_OUT_Play(0, (uint8_t *)PlayBuffer, BUFFER_SIZE * sizeof(int16_t)) != 0)
   {
     UART_Print("Audio Play Init Error\r\n");
     Error_Handler();
   }
+
+  //fill_buffer_with_square_wave(playbackBuffer, BUFFER_SIZE);
+  //ConvertSampleBufferToDMABuffer(PlayBuffer, saiDMATransmitBuffer, BUFFER_SIZE);
+  //BSP_AUDIO_OUT_Init(OUTPUT_DEVICE_HEADPHONE, volume, frequency);
+  //HAL_SAI_Transmit_DMA(&haudio_out_sai, (uint8_t*) saiDMATransmitBuffer, BUFFER_SIZE);
+
   PlaybackStarted = 1;
+
 
   /* Start Recording */
   if (BSP_AUDIO_IN_Record(0, (uint8_t *)RecordBuffer, BUFFER_SIZE * sizeof(int16_t)) != 0)
@@ -374,13 +410,113 @@ static void Audio_Loopback_Task(void *argument)
     UART_Print("Audio Record Init Error\r\n");
     Error_Handler();
   }
+  UART_Print("Audio Recording Started\r\n");
 
-  UART_Print("Audio Recording Started - SD task will handle data\r\n");
+  /* ---------- SD card setup ---------- */
+  osDelay(500);  /* Let audio DMA stabilize */
 
-  /* This task just keeps audio running, SD task handles the data */
+  if (BSP_SD_IsDetected(0) == SD_PRESENT)
+  {
+    fres = f_mount(&SDFatFs, "", 1);
+    if (fres == FR_OK)
+    {
+      fres = f_open(&AudioFile, "AUDIO.RAW", FA_CREATE_ALWAYS | FA_WRITE);
+      if (fres == FR_OK)
+      {
+        sd_recording = 1;
+        UART_Print("SD ready - recording 5s to AUDIO.RAW\r\n");
+      }
+      else
+      {
+        sprintf(msg, "f_open failed: %d\r\n", fres);
+        UART_Print(msg);
+      }
+    }
+    else
+    {
+      sprintf(msg, "f_mount failed: %d\r\n", fres);
+      UART_Print(msg);
+    }
+  }
+  else
+  {
+    UART_Print("No SD card - loopback only\r\n");
+  }
+
+  /* ---------- Main loop  ---------- */
+  audio_rec_buffer_state = BUFFER_OFFSET_NONE;
+
   while (1)
   {
-    osDelay(100);  /* Just keep task alive */
+    if (audio_rec_buffer_state != BUFFER_OFFSET_NONE)
+    {
+      if (audio_rec_buffer_state == BUFFER_OFFSET_HALF)
+      {
+        /* ---- First half ready ---- */
+        /* Loopback copy: Record → Play (first half) */
+        memcpy(&PlayBuffer[0], &RecordBuffer[0],
+               (BUFFER_SIZE / 2) * sizeof(int16_t));
+
+        /* SD write: first half */
+        if (sd_recording && (totalSamplesWritten < targetSamples))
+        {
+          fres = f_write(&AudioFile, &RecordBuffer[0],
+                         (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
+          if (fres == FR_OK)
+          {
+            totalSamplesWritten += BUFFER_SIZE / 2;
+            BSP_LED_Toggle(LED_OK);
+          }
+          else
+          {
+            sprintf(msg, "Write err: %d\r\n", fres);
+            UART_Print(msg);
+            sd_recording = 0;
+          }
+        }
+      }
+      else /* BUFFER_OFFSET_FULL */
+      {
+        /* ---- Second half ready ---- */
+        /* Loopback copy: Record → Play (second half) */
+        memcpy(&PlayBuffer[BUFFER_SIZE / 2], &RecordBuffer[BUFFER_SIZE / 2],
+               (BUFFER_SIZE / 2) * sizeof(int16_t));
+
+        /* SD write: second half */
+        if (sd_recording && (totalSamplesWritten < targetSamples))
+        {
+          fres = f_write(&AudioFile, &RecordBuffer[BUFFER_SIZE / 2],
+                         (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
+          if (fres == FR_OK)
+          {
+            totalSamplesWritten += BUFFER_SIZE / 2;
+          }
+          else
+          {
+            sprintf(msg, "Write err: %d\r\n", fres);
+            UART_Print(msg);
+            sd_recording = 0;
+          }
+        }
+      }
+
+      /* Reset state — wait for next DMA event */
+      audio_rec_buffer_state = BUFFER_OFFSET_NONE;
+
+      /* Check if recording target reached */
+      if (sd_recording && (totalSamplesWritten >= targetSamples))
+      {
+        f_close(&AudioFile);
+        f_mount(NULL, "", 0);
+        sd_recording = 0;
+        g_RecordingComplete = 1;
+        sprintf(msg, "Done! %lu samples written\r\n", totalSamplesWritten);
+        UART_Print(msg);
+        UART_Print("Import: Signed 16-bit PCM, Stereo, 48000Hz\r\n");
+        BSP_LED_On(LED_OK);
+      }
+    }
+    /* No osDelay here — tight poll like reference, task priority handles scheduling */
   }
 }
 
@@ -388,170 +524,49 @@ static void Audio_Loopback_Task(void *argument)
 static void Audio_Analysis_Task(void *argument)
 {
     DSP_Init();
-    uint32_t buffer_offset = 0;
 
     while (1)
     {
-        // Wait for DMA to fill half the buffer
-        if (HalfReady || FullReady)
+        /*
+         * NOTE: This task is a passive observer — it reads the PlayBuffer
+         * For now it just does FFT on the most recent PlayBuffer data.
+         * Enable this task to read real-time frequency analysis.
+         */
+        if (audio_rec_buffer_state != BUFFER_OFFSET_NONE)
         {
-            // Determine which half of the DMA buffer to read
-            int16_t *src_buffer = (HalfReady) ? &RecordBuffer[0] : &RecordBuffer[BUFFER_SIZE/2];
+            /* Use PlayBuffer (already safely copied by loopback task) */
+            int16_t *src_buffer = (audio_rec_buffer_state == BUFFER_OFFSET_HALF)
+                                  ? &PlayBuffer[0]
+                                  : &PlayBuffer[BUFFER_SIZE/2];
 
-            // 1. Convert INT16 audio to FLOAT for FFT
-            // We also take only the LEFT channel (stride of 2)
+            /* Convert INT16 audio to FLOAT for FFT (LEFT channel only, stride 2) */
             for (int i = 0; i < FFT_SIZE; i++) {
-                // Normalize to -1.0 to 1.0 range usually, or just cast
                 if ((i * 2) < (BUFFER_SIZE / 2)) {
                    fft_input_buffer[i] = (float32_t)src_buffer[i * 2];
                 } else {
-                   fft_input_buffer[i] = 0.0f; // Zero padding if buffer too small
+                   fft_input_buffer[i] = 0.0f;
                 }
             }
 
-            // 2. Perform FFT
             arm_rfft_fast_f32(&fft_handler, fft_input_buffer, fft_output_buffer, 0);
-
-            // 3. Calculate Magnitude
-            // Complex magnitude: sqrt(real^2 + imag^2)
             arm_cmplx_mag_f32(fft_output_buffer, fft_magnitude, FFT_SIZE / 2);
-
-            // 4. Find Dominant Frequency (Peak)
-            // Ignore DC component (index 0)
-            fft_magnitude[0] = 0;
+            fft_magnitude[0] = 0;  /* Ignore DC */
 
             float32_t maxVal;
             uint32_t maxIndex;
             arm_max_f32(fft_magnitude, FFT_SIZE / 2, &maxVal, &maxIndex);
 
-            // 5. Calculate Hz
-            // Resolution = SampleRate / FFT_SIZE
             float frequency = (float)maxIndex * ((float)SAMPLE_RATE / (float)FFT_SIZE);
 
-            // Print Result
-            if (maxVal > 1000.0f) { // Noise gate
-            	//UART_Print("Detected Freq: \r\n");
-            	float new_frequency = frequency;
-            	//UART_Print(frequency);
-                //printf("Detected Freq: %.2f Hz (Mag: %.0f)\r\n", frequency, maxVal);
+            if (maxVal > 1000.0f) {
+                /* Frequency detected — add UART print here if needed */
+                (void)frequency;
             }
-
-            // Clear flags
-            if (HalfReady) HalfReady = 0;
-            if (FullReady) FullReady = 0;
         }
-        //osDelay(10); // Yield
+        osDelay(10); /* Yield — this is a low-priority observer */
     }
 }
 
-/**
- * @brief  Task to record raw audio data to SD card for analysis
- *         Records 5 seconds of raw PCM data to "AUDIO.RAW"
- *         Format: 16-bit signed, stereo, 48kHz
- * @param  argument: Not used
- * @retval None
- */
-static void Audio_Record_To_SD_Task(void *argument)
-{
-    FATFS SDFatFs;
-    FIL AudioFile;
-    FRESULT fres;
-    UINT bytesWritten;
-    uint32_t totalSamplesWritten = 0;
-    uint32_t targetSamples = SAMPLES_TO_RECORD;
-    char msg[64];
-
-    UART_Print("SD Record Task Started\r\n");
-
-    /* Wait a bit for system to stabilize */
-    osDelay(1000);
-
-    /* Check if SD card is present */
-    if (BSP_SD_IsDetected(0) != SD_PRESENT)
-    {
-        UART_Print("ERROR: No SD card detected!\r\n");
-        while(1) {
-        	BSP_LED_Toggle(LED_ERROR);
-        	      osDelay(200);}
-    }
-
-    /* Mount the file system */
-    fres = f_mount(&SDFatFs, "", 1);
-    if (fres != FR_OK)
-    {
-        sprintf(msg, "ERROR: f_mount failed: %d\r\n", fres);
-        UART_Print(msg);
-        while(1) { osDelay(1000); }
-    }
-    UART_Print("SD card mounted OK\r\n");
-
-    /* Create/Open file for writing */
-    fres = f_open(&AudioFile, "AUDIO.RAW", FA_CREATE_ALWAYS | FA_WRITE);
-    if (fres != FR_OK)
-    {
-        sprintf(msg, "ERROR: f_open failed: %d\r\n", fres);
-        UART_Print(msg);
-        f_mount(NULL, "", 0);
-        while(1) { osDelay(1000); }
-    }
-    UART_Print("File AUDIO.RAW created\r\n");
-    UART_Print("Recording 5 seconds of audio...\r\n");
-
-    /* Main recording loop */
-    while (totalSamplesWritten < targetSamples)
-    {
-        if (HalfReady)
-        {
-            /* Write first half of buffer */
-            fres = f_write(&AudioFile, &RecordBuffer[0],
-                          (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
-            if (fres != FR_OK)
-            {
-                sprintf(msg, "Write error: %d\r\n", fres);
-                UART_Print(msg);
-                break;
-            }
-            totalSamplesWritten += BUFFER_SIZE / 2;
-            HalfReady = 0;
-            BSP_LED_Toggle(LED_OK);
-        }
-
-        if (FullReady)
-        {
-            /* Write second half of buffer */
-            fres = f_write(&AudioFile, &RecordBuffer[BUFFER_SIZE / 2],
-                          (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
-            if (fres != FR_OK)
-            {
-                sprintf(msg, "Write error: %d\r\n", fres);
-                UART_Print(msg);
-                break;
-            }
-            totalSamplesWritten += BUFFER_SIZE / 2;
-            FullReady = 0;
-        }
-
-        osDelay(1);  /* Yield to other tasks */
-    }
-
-    /* Close file */
-    f_close(&AudioFile);
-    f_mount(NULL, "", 0);
-
-    sprintf(msg, "Recording complete! %lu samples written\r\n", totalSamplesWritten);
-    UART_Print(msg);
-    UART_Print("File saved as AUDIO.RAW\r\n");
-    UART_Print("Import in Audacity: Raw Data, Signed 16-bit PCM, Stereo, 48000Hz\r\n");
-
-    g_RecordingComplete = 1;
-    BSP_LED_On(LED_OK);
-
-    /* Task complete - idle forever */
-    while(1)
-    {
-        osDelay(1000);
-    }
-}
 
 /* USER CODE BEGIN 4 */
 
@@ -718,6 +733,19 @@ PUTCHAR_PROTOTYPE
   HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
 
   return ch;
+}
+
+
+//frame length 8 bytes
+//sample size 2 bytes
+//2 samples in a frame, left and right
+static void ConvertSampleBufferToDMABuffer(int16_t * sampleBuffer, uint8_t * dmaBuffer, uint32_t num_samples)
+{
+    for(uint32_t i=0; i<num_samples; i++){
+        int16_t * p = (int16_t *) &dmaBuffer[i*8]; //samples are spaced 8 bytes apart
+        *p = sampleBuffer[i];
+        *(p+2) = sampleBuffer[i];
+    }
 }
 
 static void CPU_CACHE_Enable(void)
