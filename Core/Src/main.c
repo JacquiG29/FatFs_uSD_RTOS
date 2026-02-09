@@ -30,16 +30,13 @@
  * --------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "audio_record.h" /* Provides Audio_LoopbackInit() and buffers */
-#include "stm32h735g_discovery_audio.h"
-#include "../Components/wm8994/wm8994.h"
-#include "stm32h735g_discovery_errno.h"
-extern SAI_HandleTypeDef haudio_out_sai;
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-#define FFT_SIZE  1024  // Size of FFT (must be power of 2: 256, 512, 1024, 2048)
+#define FFT_SIZE 1024 // Size of FFT (must be power of 2: 256, 512, 1024, 2048)
 #define SAMPLE_RATE 48000
 
 /* ---- Buffer state enum (same pattern as reference) ---- */
@@ -54,26 +51,30 @@ volatile uint32_t audio_rec_buffer_state = BUFFER_OFFSET_NONE;
 
 /* Global FFT Variables */
 arm_rfft_fast_instance_f32 fft_handler;
-float32_t fft_input_buffer[FFT_SIZE];   // Input for FFT (Float)
-float32_t fft_output_buffer[FFT_SIZE];  // Output of FFT
-float32_t fft_magnitude[FFT_SIZE / 2];  // Magnitude result
+float32_t fft_input_buffer[FFT_SIZE];  // Input for FFT (Float)
+float32_t fft_output_buffer[FFT_SIZE]; // Output of FFT
+float32_t fft_magnitude[FFT_SIZE / 2]; // Magnitude result
 
 /* Initialization Function (Call this once in main or task init) */
-void DSP_Init(void) {
-    arm_rfft_fast_init_f32(&fft_handler, FFT_SIZE);
+void DSP_Init(void)
+{
+  arm_rfft_fast_init_f32(&fft_handler, FFT_SIZE);
 }
-static void ConvertSampleBufferToDMABuffer(int16_t * sampleBuffer, uint8_t * dmaBuffer, uint32_t num_samples);
 
-#define MY_DMA_BYTES_PER_FRAME 8
-#define MY_DMA_BYTES_PER_MSIZE 2
-#define MY_DMA_BUFFER_SIZE_BYTES BUFFER_SIZE * MY_DMA_BYTES_PER_FRAME
-#define MY_DMA_BUFFER_SIZE_MSIZES MY_DMA_BUFFER_SIZE_BYTES / MY_DMA_BYTES_PER_MSIZE
+/* Ring Buffer Settings */
+#define RB_SIZE (128 * 1024) // 32KB Buffer (Approx 170ms of stereo audio at 48kHz)
+volatile uint32_t rb_head = 0;  // Write index
+volatile uint32_t rb_tail = 0;  // Read index
+volatile uint32_t rb_count = 0; // Available bytes
 
-static int16_t playbackBuffer[BUFFER_SIZE];
-static uint8_t saiDMATransmitBuffer[MY_DMA_BUFFER_SIZE_BYTES];
-static uint32_t frequency = AUDIO_FREQUENCY_48K;
-
-
+__attribute__((section(".axi_sram"))) uint8_t Audio_Ring_Buffer[RB_SIZE];
+/* Create a temporary buffer for SD writing to avoid reading 1 byte at a time */
+__attribute__((section(".axi_sram"))) uint8_t scratch_buf[4096];
+__attribute__((section(".axi_sram"))) FATFS SDFatFs;
+__attribute__((section(".axi_sram"))) FIL AudioFile;
+/* Global variable to track total bytes recorded */
+static uint32_t total_bytes_recorded = 0;
+const uint32_t TARGET_BYTES = (SAMPLE_RATE * 2 * 2 * 5); // 48kHz * 16bit * Stereo * 5 seconds
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -96,15 +97,17 @@ static osThreadAttr_t fatfs_attr = {
 osThreadId_t AudioTaskHandle;
 static osThreadAttr_t audio_attr = {
     .priority = osPriorityAboveNormal,
-    .stack_size = 4 * configMINIMAL_STACK_SIZE,  /* Needs room for FatFs + audio */
+    .stack_size = 8 * configMINIMAL_STACK_SIZE, /* Needs room for FatFs + audio */
 };
 
-osThreadId_t AudioAnalysisTaskHandle;
-static osThreadAttr_t audio_analysis_attr = {
-    .priority = osPriorityLow,
-    .stack_size = 2 * configMINIMAL_STACK_SIZE,
+osThreadId_t SEM_SDHandle;
+static osThreadAttr_t sd_task_attr = {
+    .stack_size = 4096, // FatFS needs a healthy stack size!
+    .priority = (osPriority_t)osPriorityNormal,
 };
 
+/* Semaphore to wake up SD thread */
+osSemaphoreId_t SDRemaphoreHandle;
 /* Audio_Record_To_SD_Task removed — SD recording merged into Audio_Loopback_Task */
 
 /* USER CODE BEGIN PV */
@@ -112,9 +115,9 @@ int32_t ProcessStatus = 0;
 UART_HandleTypeDef huart3;
 
 /* Audio recording to SD card variables */
-#define RECORD_DURATION_SECONDS  5
-#define SAMPLES_TO_RECORD  (AUDIO_SAMPLE_RATE * RECORD_DURATION_SECONDS * 2)  /* *2 for stereo */
-volatile uint8_t g_StartRecording = 0;  /* Set to 1 to start recording */
+#define RECORD_DURATION_SECONDS 5
+#define SAMPLES_TO_RECORD (AUDIO_SAMPLE_RATE * RECORD_DURATION_SECONDS * 2) /* *2 for stereo */
+volatile uint8_t g_StartRecording = 0;                                      /* Set to 1 to start recording */
 volatile uint8_t g_RecordingComplete = 0;
 /* USER CODE END PV */
 
@@ -132,10 +135,10 @@ static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void STATUS_Thread(void *argument);
 static void Audio_Loopback_Task(void *argument);
-static void Audio_Play_Task(void *argument);
-static void Audio_Record_Task(void *argument);
 static void MX_USART3_UART_Init(void);
-static void Audio_Analysis_Task(void *argument);
+static void SD_Write_Task(void *argument);
+void RB_Write(uint8_t *data, uint32_t len);
+uint32_t RB_Read(uint8_t *buffer, uint32_t len);
 /* Audio_Record_To_SD_Task removed — merged into Audio_Loopback_Task */
 /* USER CODE BEGIN PFP */
 uint32_t loop_count = 0;
@@ -200,7 +203,7 @@ int main(void)
   osKernelInitialize();
 
   UART_Print("\r\n AUDIO CONFIG\r\n");
-  if(Audio_LoopbackInit() != 0)
+  if (Audio_LoopbackInit() != 0)
   {
     UART_Print("\r\n ERROR AUDIO\r\n");
     while (1)
@@ -216,6 +219,10 @@ int main(void)
 
   UART_Print("Entering main loop...\r\n");
   loop_count = 0;
+
+  SDRemaphoreHandle = osSemaphoreNew(1U, 0, NULL);
+  SEM_SDHandle = osThreadNew(SD_Write_Task, NULL, &sd_task_attr);
+  UART_Print("Semaphore Init \r\n");
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -373,15 +380,6 @@ static void STATUS_Thread(void *argument)
 
 static void Audio_Loopback_Task(void *argument)
 {
-  FATFS SDFatFs;
-  FIL AudioFile;
-  FRESULT fres;
-  UINT bytesWritten;
-  uint32_t totalSamplesWritten = 0;
-  uint32_t targetSamples = SAMPLES_TO_RECORD;
-  uint8_t sd_recording = 0;
-  char msg[64];
-
   UART_Print("Audio task init \r\n");
 
   /* Clear buffers to ensure we play silence initially */
@@ -389,20 +387,12 @@ static void Audio_Loopback_Task(void *argument)
   memset(PlayBuffer, 0, sizeof(PlayBuffer));
 
   /* Start Playback FIRST to generate the SAI Clock */
-
   if (BSP_AUDIO_OUT_Play(0, (uint8_t *)PlayBuffer, BUFFER_SIZE * sizeof(int16_t)) != 0)
   {
     UART_Print("Audio Play Init Error\r\n");
     Error_Handler();
   }
-
-  //fill_buffer_with_square_wave(playbackBuffer, BUFFER_SIZE);
-  //ConvertSampleBufferToDMABuffer(PlayBuffer, saiDMATransmitBuffer, BUFFER_SIZE);
-  //BSP_AUDIO_OUT_Init(OUTPUT_DEVICE_HEADPHONE, volume, frequency);
-  //HAL_SAI_Transmit_DMA(&haudio_out_sai, (uint8_t*) saiDMATransmitBuffer, BUFFER_SIZE);
-
   PlaybackStarted = 1;
-
 
   /* Start Recording */
   if (BSP_AUDIO_IN_Record(0, (uint8_t *)RecordBuffer, BUFFER_SIZE * sizeof(int16_t)) != 0)
@@ -412,8 +402,85 @@ static void Audio_Loopback_Task(void *argument)
   }
   UART_Print("Audio Recording Started\r\n");
 
+  /* ---------- Main loop  ---------- */
+  audio_rec_buffer_state = BUFFER_OFFSET_NONE;
+  uint8_t flag_rec = 1;
+  while (1)
+    {
+      /* Use local copy of state to avoid race conditions with ISR */
+      uint32_t state = audio_rec_buffer_state;
+
+      if (state != BUFFER_OFFSET_NONE)
+      {
+        /* Define Pointers for readability */
+        int16_t *src; //source (ADC from codec)
+        int16_t *dst; //destiny (DAC from codec)
+        uint32_t bytes_to_process = (BUFFER_SIZE / 2) * sizeof(int16_t);
+
+
+        /* Assign Pointers based on State */
+        if (state == BUFFER_OFFSET_HALF)
+        {
+            /* First Half Ready (0 to Half) */
+            src = &RecordBuffer[0];
+            dst = &PlayBuffer[0];
+            if (flag_rec == 1){
+            	g_StartRecording = 1;
+            	flag_rec = 2;
+            }
+
+        }
+        else /* BUFFER_OFFSET_FULL */
+        {
+            /* Second Half Ready (Half to End) */
+            src = &RecordBuffer[BUFFER_SIZE / 2];
+            dst = &PlayBuffer[BUFFER_SIZE / 2];
+        }
+
+        /* Audio Loopback (Copy Record -> Play) */
+        memcpy(dst, src, bytes_to_process);
+
+        /* SD Card Recording (Write to Ring Buffer) */
+        if (g_StartRecording && (total_bytes_recorded < TARGET_BYTES))
+        {
+            RB_Write((uint8_t *)src, bytes_to_process);//write to RAM ADC data
+
+            total_bytes_recorded += bytes_to_process;
+            osSemaphoreRelease(SDRemaphoreHandle);
+
+            /* Visual Heartbeat */
+            static int toggle_cnt = 0;
+            if (++toggle_cnt > 48) {
+                BSP_LED_Toggle(LED_OK);
+                toggle_cnt = 0;
+            }
+        }
+        else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
+        {
+            /* Recording Finished */
+            g_StartRecording = 0;
+            g_RecordingComplete = 1;
+            UART_Print("Audio Task: Target Size Reached!\r\n");
+            BSP_LED_Off(LED_OK);
+        }
+
+        /* Clear Flag (CRITICAL: Must happen for BOTH cases) */
+        audio_rec_buffer_state = BUFFER_OFFSET_NONE;
+      }
+      osDelay(1);
+    }
+}
+
+static void SD_Write_Task(void *argument)
+{
+  char msg[64];
+  //FATFS SDFatFs;
+  //FIL AudioFile;
+  UINT bytesWritten;/* File write/read counts */
+  FRESULT fres;
+
   /* ---------- SD card setup ---------- */
-  osDelay(500);  /* Let audio DMA stabilize */
+  osDelay(500); /* Let audio DMA stabilize */
 
   if (BSP_SD_IsDetected(0) == SD_PRESENT)
   {
@@ -423,7 +490,6 @@ static void Audio_Loopback_Task(void *argument)
       fres = f_open(&AudioFile, "AUDIO.RAW", FA_CREATE_ALWAYS | FA_WRITE);
       if (fres == FR_OK)
       {
-        sd_recording = 1;
         UART_Print("SD ready - recording 5s to AUDIO.RAW\r\n");
       }
       else
@@ -443,131 +509,95 @@ static void Audio_Loopback_Task(void *argument)
     UART_Print("No SD card - loopback only\r\n");
   }
 
-  /* ---------- Main loop  ---------- */
-  audio_rec_buffer_state = BUFFER_OFFSET_NONE;
-
   while (1)
   {
-    if (audio_rec_buffer_state != BUFFER_OFFSET_NONE)
+    // Wait for signal from Audio Task (timeout 100ms)
+    osSemaphoreAcquire(SDRemaphoreHandle, 100);
+
+    // Check if we have enough data in Ring Buffer to make a write worth it
+    // Writing 4KB chunks is much more efficient than small chunks
+    if (rb_count >= sizeof(scratch_buf))
     {
-      if (audio_rec_buffer_state == BUFFER_OFFSET_HALF)
-      {
-        /* ---- First half ready ---- */
-        /* Loopback copy: Record → Play (first half) */
-        memcpy(&PlayBuffer[0], &RecordBuffer[0],
-               (BUFFER_SIZE / 2) * sizeof(int16_t));
-
-        /* SD write: first half */
-        if (sd_recording && (totalSamplesWritten < targetSamples))
-        {
-          fres = f_write(&AudioFile, &RecordBuffer[0],
-                         (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
-          if (fres == FR_OK)
-          {
-            totalSamplesWritten += BUFFER_SIZE / 2;
-            BSP_LED_Toggle(LED_OK);
-          }
-          else
-          {
-            sprintf(msg, "Write err: %d\r\n", fres);
-            UART_Print(msg);
-            sd_recording = 0;
-          }
-        }
-      }
-      else /* BUFFER_OFFSET_FULL */
-      {
-        /* ---- Second half ready ---- */
-        /* Loopback copy: Record → Play (second half) */
-        memcpy(&PlayBuffer[BUFFER_SIZE / 2], &RecordBuffer[BUFFER_SIZE / 2],
-               (BUFFER_SIZE / 2) * sizeof(int16_t));
-
-        /* SD write: second half */
-        if (sd_recording && (totalSamplesWritten < targetSamples))
-        {
-          fres = f_write(&AudioFile, &RecordBuffer[BUFFER_SIZE / 2],
-                         (BUFFER_SIZE / 2) * sizeof(int16_t), &bytesWritten);
-          if (fres == FR_OK)
-          {
-            totalSamplesWritten += BUFFER_SIZE / 2;
-          }
-          else
-          {
-            sprintf(msg, "Write err: %d\r\n", fres);
-            UART_Print(msg);
-            sd_recording = 0;
-          }
-        }
-      }
-
-      /* Reset state — wait for next DMA event */
-      audio_rec_buffer_state = BUFFER_OFFSET_NONE;
-
-      /* Check if recording target reached */
-      if (sd_recording && (totalSamplesWritten >= targetSamples))
-      {
-        f_close(&AudioFile);
-        f_mount(NULL, "", 0);
-        sd_recording = 0;
-        g_RecordingComplete = 1;
-        sprintf(msg, "Done! %lu samples written\r\n", totalSamplesWritten);
-        UART_Print(msg);
-        UART_Print("Import: Signed 16-bit PCM, Stereo, 48000Hz\r\n");
-        BSP_LED_On(LED_OK);
-      }
+      // Read from Ring Buffer into Scratch Buffer
+      RB_Read(scratch_buf, sizeof(scratch_buf));
+      // Blocking Write to SD
+      fres=f_write(&AudioFile, scratch_buf, sizeof(scratch_buf), &bytesWritten);
     }
-    /* No osDelay here — tight poll like reference, task priority handles scheduling */
+    else if(g_RecordingComplete == 1 && rb_count > 0){
+    	//Flush Remaining Data (Only when recording is done)
+    	uint32_t remaining = rb_count;
+    	RB_Read(scratch_buf, remaining);
+    	fres=f_write(&AudioFile, scratch_buf, remaining, &bytesWritten);
+    	rb_count = 0;
+
+    }
+
+    if (g_RecordingComplete == 1 && rb_count == 0) {
+            // We are done recording AND the buffer is fully drained
+            f_close(&AudioFile);
+            //f_mount(NULL, "", 0);
+            UART_Print("SD Task: File Closed. Recording Saved.\r\n");
+            BSP_LED_On(LED_OK);
+            // Kill this task or suspend it to stop running
+            osThreadTerminate(osThreadGetId());
+        }
+
   }
 }
 
-
-static void Audio_Analysis_Task(void *argument)
+/* Write data to Ring Buffer (Called by Audio Loopback Task) */
+void RB_Write(uint8_t *data, uint32_t len)
 {
-    DSP_Init();
+  if ((rb_count + len) > RB_SIZE)
+  {
+    //UART_Print("Buffer Overflow!\r\n"); // SD card is too slow!
+	BSP_LED_On(LED_ERROR);
+    return;
+  }
+  /* Calculate contiguous bytes until end of buffer */
+    uint32_t bytes_to_end = RB_SIZE - rb_head;
 
-    while (1)
+    if (len <= bytes_to_end)
     {
-        /*
-         * NOTE: This task is a passive observer — it reads the PlayBuffer
-         * For now it just does FFT on the most recent PlayBuffer data.
-         * Enable this task to read real-time frequency analysis.
-         */
-        if (audio_rec_buffer_state != BUFFER_OFFSET_NONE)
-        {
-            /* Use PlayBuffer (already safely copied by loopback task) */
-            int16_t *src_buffer = (audio_rec_buffer_state == BUFFER_OFFSET_HALF)
-                                  ? &PlayBuffer[0]
-                                  : &PlayBuffer[BUFFER_SIZE/2];
-
-            /* Convert INT16 audio to FLOAT for FFT (LEFT channel only, stride 2) */
-            for (int i = 0; i < FFT_SIZE; i++) {
-                if ((i * 2) < (BUFFER_SIZE / 2)) {
-                   fft_input_buffer[i] = (float32_t)src_buffer[i * 2];
-                } else {
-                   fft_input_buffer[i] = 0.0f;
-                }
-            }
-
-            arm_rfft_fast_f32(&fft_handler, fft_input_buffer, fft_output_buffer, 0);
-            arm_cmplx_mag_f32(fft_output_buffer, fft_magnitude, FFT_SIZE / 2);
-            fft_magnitude[0] = 0;  /* Ignore DC */
-
-            float32_t maxVal;
-            uint32_t maxIndex;
-            arm_max_f32(fft_magnitude, FFT_SIZE / 2, &maxVal, &maxIndex);
-
-            float frequency = (float)maxIndex * ((float)SAMPLE_RATE / (float)FFT_SIZE);
-
-            if (maxVal > 1000.0f) {
-                /* Frequency detected — add UART print here if needed */
-                (void)frequency;
-            }
-        }
-        osDelay(10); /* Yield — this is a low-priority observer */
+      /* Case A: Data fits in the remaining space */
+      memcpy(&Audio_Ring_Buffer[rb_head], data, len);
+      rb_head += len;
     }
+    else
+    {
+      /* Case B: Data wraps around */
+      memcpy(&Audio_Ring_Buffer[rb_head], data, bytes_to_end);
+      memcpy(&Audio_Ring_Buffer[0], &data[bytes_to_end], len - bytes_to_end);
+      rb_head = len - bytes_to_end;
+    }
+
+    /* Handle wrap-around of head index if it exactly matches size */
+    if (rb_head == RB_SIZE) rb_head = 0;
+
+    /*Atomic Update */
+    __disable_irq();
+    rb_count += len;
+    __enable_irq();
 }
 
+/* Read data from Ring Buffer (Called by SD Task) */
+uint32_t RB_Read(uint8_t *buffer, uint32_t len)
+{
+  if (rb_count < len)
+    return 0; // Not enough data yet
 
+  for (uint32_t i = 0; i < len; i++)
+  {
+    buffer[i] = Audio_Ring_Buffer[rb_tail];
+    rb_tail = (rb_tail + 1) % RB_SIZE;
+  }
+
+  __disable_irq();
+  rb_count -= len;
+  __enable_irq();
+
+  return len;
+}
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
@@ -601,8 +631,8 @@ static void MPU_Config(void)
   HAL_MPU_Disable();
 
   /* ============================================================
-       REGION 0:
-       ============================================================ */
+   REGION 0:
+  ============================================================ */
   /* Configure the MPU as Strongly ordered for not defined regions */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.BaseAddress = 0x00;
@@ -634,6 +664,28 @@ static void MPU_Config(void)
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
+  /* ============================================================
+   REGION 2: AXI SRAM (0x24000000) for Audio Buffers
+   ============================================================ */
+    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+    MPU_InitStruct.Number = MPU_REGION_NUMBER2;
+
+    /* CHANGE THIS ADDRESS to match your .axi_sram section */
+    MPU_InitStruct.BaseAddress = 0x24000000;
+
+    /* AXI SRAM is 320KB, so we cover it with a larger region (e.g., 512KB)
+       or just enough for your buffers. 256KB or 512KB is safe. */
+    MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
+
+    MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+    MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE; // Critical for DMA
+    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+    MPU_InitStruct.SubRegionDisable = 0x00;
+    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enable the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
@@ -722,10 +774,10 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 }
 
 /**
-  * @brief  Retargets the C library printf function to the USART.
-  * @param  None
-  * @retval None
-  */
+ * @brief  Retargets the C library printf function to the USART.
+ * @param  None
+ * @retval None
+ */
 PUTCHAR_PROTOTYPE
 {
   /* Place your implementation of fputc here */
@@ -733,19 +785,6 @@ PUTCHAR_PROTOTYPE
   HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
 
   return ch;
-}
-
-
-//frame length 8 bytes
-//sample size 2 bytes
-//2 samples in a frame, left and right
-static void ConvertSampleBufferToDMABuffer(int16_t * sampleBuffer, uint8_t * dmaBuffer, uint32_t num_samples)
-{
-    for(uint32_t i=0; i<num_samples; i++){
-        int16_t * p = (int16_t *) &dmaBuffer[i*8]; //samples are spaced 8 bytes apart
-        *p = sampleBuffer[i];
-        *(p+2) = sampleBuffer[i];
-    }
 }
 
 static void CPU_CACHE_Enable(void)

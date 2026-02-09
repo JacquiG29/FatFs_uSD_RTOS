@@ -77,7 +77,7 @@ int Audio_LoopbackInit(void)
     AudioOutInit.ChannelsNbr   = 2;
     AudioOutInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioOutInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioOutInit.Volume        = 50;
+    AudioOutInit.Volume        = 20;
 
     if (BSP_AUDIO_OUT_Init(0, &AudioOutInit) != BSP_ERROR_NONE)
     {
@@ -167,21 +167,14 @@ static int WM8994_WriteReg(uint16_t reg, uint16_t value)
  */
 int Audio_FixLineInConfig(void)
 {
-    // --- STEP 1: Enable VMID and Bias (Register 0x01) ---
+    // Enable VMID and Bias (Register 0x01) ---
     // Bit 2 (BIAS_ENA): 1 (Enable Master Bias)
     // Bits 1:0 (VMID_SEL): 11 (Enable VMID 2x5k divider for fast start)
     // Without this, the input pin sits at 0V and clips negative audio.
     if (WM8994_WriteReg(0x01, 0x0007) != 0) return -1;
 
-    // --- STEP 2: Enable Analog Input Paths (Register 0x02) ---
-    // Bit 9 (MIXINL_ENA): 1 (Left Input Mixer Enable)
-    // Bit 8 (MIXINR_ENA): 1 (Right Input Mixer Enable)
-    // Bit 5 (IN1L_ENA):   1 (Left Input PGA Enable)
-    // Bit 4 (IN1R_ENA):   1 (Right Input PGA Enable)
-    uint16_t power2_cfg = 0x3330;//0x0330
-    if (WM8994_WriteReg(0x02, power2_cfg) != 0) return -2;
 
-    // --- STEP 3: Connect Line-In to Mixer & Disable Boost (Reg 0x29 & 0x2A) ---
+    // Connect Line-In to Mixer & Disable Boost (Reg 0x29 & 0x2A) ---
     /* WM8994 INPUT_MIXER_3 (0x29) and INPUT_MIXER_4 (0x2A)
      * Current value: 0x0035 = IN1L_TO_MIXINL(bit5) + IN1L_MIXINL_VOL(bit4=+30dB) + mixer_vol(bits0-2)
      * New value: 0x0020 = IN1L_TO_MIXINL only (0dB boost)

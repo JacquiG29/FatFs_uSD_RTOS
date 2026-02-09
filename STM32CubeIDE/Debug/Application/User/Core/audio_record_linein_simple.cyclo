@@ -3,4 +3,4 @@
 ../Application/User/Core/audio_record_linein_simple.c:122:6:BSP_AUDIO_IN_TransferComplete_CallBack	2
 ../Application/User/Core/audio_record_linein_simple.c:133:6:BSP_AUDIO_IN_Error_CallBack	1
 ../Application/User/Core/audio_record_linein_simple.c:148:12:WM8994_WriteReg	2
-../Application/User/Core/audio_record_linein_simple.c:168:5:Audio_FixLineInConfig	8
+../Application/User/Core/audio_record_linein_simple.c:168:5:Audio_FixLineInConfig	7
