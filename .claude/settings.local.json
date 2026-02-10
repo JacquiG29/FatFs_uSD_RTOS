@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(dir:*)",
+      "WebFetch(domain:community.st.com)",
+      "WebFetch(domain:www.st.com)"
     ]
   }
 }

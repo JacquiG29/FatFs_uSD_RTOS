@@ -29,6 +29,7 @@
 #include "../Components/wm8994/wm8994.h"
 #include "stm32h735g_discovery_errno.h"
 extern SAI_HandleTypeDef haudio_out_sai;
+extern osMessageQueueId_t SDQueueHandle;
 /* -----------------------------------------------------------------------------
  * BUFFERS - Must be in D3 SRAM for DMA access
  * -------------------------------------------------------------------------- */
@@ -113,7 +114,8 @@ void BSP_AUDIO_IN_HalfTransfer_CallBack(uint32_t Instance)
 {
   if (Instance == 0)
   {
-    audio_rec_buffer_state = 1;  /* BUFFER_OFFSET_HALF */
+    uint32_t msg = 1;//BUFFER_OFFSET_HALF;
+    osMessageQueuePut(SDQueueHandle, &msg, 0, 0);
   }
 }
 /**
@@ -123,7 +125,8 @@ void BSP_AUDIO_IN_TransferComplete_CallBack(uint32_t Instance)
 {
   if (Instance == 0)
   {
-    audio_rec_buffer_state = 2;  /* BUFFER_OFFSET_FULL */
+	uint32_t msg  = 2;  /* BUFFER_OFFSET_FULL */
+    osMessageQueuePut(SDQueueHandle, &msg, 0, 0);
   }
 }
 
@@ -172,8 +175,6 @@ int Audio_FixLineInConfig(void)
     // Bits 1:0 (VMID_SEL): 11 (Enable VMID 2x5k divider for fast start)
     // Without this, the input pin sits at 0V and clips negative audio.
     if (WM8994_WriteReg(0x01, 0x0007) != 0) return -1;
-
-
     // Connect Line-In to Mixer & Disable Boost (Reg 0x29 & 0x2A) ---
     /* WM8994 INPUT_MIXER_3 (0x29) and INPUT_MIXER_4 (0x2A)
      * Current value: 0x0035 = IN1L_TO_MIXINL(bit5) + IN1L_MIXINL_VOL(bit4=+30dB) + mixer_vol(bits0-2)
@@ -190,21 +191,6 @@ int Audio_FixLineInConfig(void)
 
 	// Configure RIGHT channel (if recording stereo)
 	if (WM8994_WriteReg(0x002A, line_in_cfg) != 0) return -1;
-
-    /* Also disable DRC (Dynamic Range Compressor) which might be clipping
-     * Register 0x440 = AIF1_DRC1 - set to 0x0098 to disable DRC
-     * Default was 0x00DB which enables DRC with signal detect
-     */
-    if (WM8994_WriteReg(0x0440, 0x0098) != 0)
-        return -3;
-
-    /* Reduce LINE_IN PGA gain to prevent any remaining clipping
-     * Register 0x18/0x1A: Set to 0x03 for -12dB (from 0dB default of 0x0B)
-     */
-    if (WM8994_WriteReg(0x0018, 0x0003) != 0)
-        return -4;
-    if (WM8994_WriteReg(0x001A, 0x0003) != 0)
-        return -5;
     return 0; // Success
 }
 

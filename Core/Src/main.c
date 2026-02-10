@@ -37,7 +37,7 @@
 /* USER CODE BEGIN PTD */
 /* Defines */
 #define FFT_SIZE 1024 // Size of FFT (must be power of 2: 256, 512, 1024, 2048)
-#define SAMPLE_RATE 48000
+#define SD_SAMPLE_RATE 48000
 
 /* ---- Buffer state enum (same pattern as reference) ---- */
 typedef enum
@@ -47,8 +47,39 @@ typedef enum
   BUFFER_OFFSET_FULL = 2,
 } BUFFER_StateTypeDef;
 
-volatile uint32_t audio_rec_buffer_state = BUFFER_OFFSET_NONE;
+/* WAV Header Structure */
+typedef struct {
+    char chunkId[4];        // "RIFF"
+    uint32_t chunkSize;     // Total file size - 8
+    char format[4];         // "WAVE"
+    char subchunk1Id[4];    // "fmt "
+    uint32_t subchunk1Size; // 16 for PCM
+    uint16_t audioFormat;   // 1 for PCM
+    uint16_t numChannels;   // 2 for Stereo
+    uint32_t sampleRate;    // 48000
+    uint32_t byteRate;      // sampleRate * numChannels * bitsPerSample/8
+    uint16_t blockAlign;    // numChannels * bitsPerSample/8
+    uint16_t bitsPerSample; // 16
+    char subchunk2Id[4];    // "data"
+    uint32_t subchunk2Size; // Data size (bytes)
+} __attribute__((packed)) WavHeader;
 
+/* Helper to prepare header */
+void Create_WAV_Header(WavHeader *header, uint32_t waveDataSize) {
+    memcpy(header->chunkId, "RIFF", 4);
+    header->chunkSize = waveDataSize + 36; // 36 + dataSize
+    memcpy(header->format, "WAVE", 4);
+    memcpy(header->subchunk1Id, "fmt ", 4);
+    header->subchunk1Size = 16;
+    header->audioFormat = 1; // PCM
+    header->numChannels = 2; // Stereo
+    header->sampleRate = SD_SAMPLE_RATE;
+    header->byteRate = SD_SAMPLE_RATE * 2 * 2; // 192000
+    header->blockAlign = 4;
+    header->bitsPerSample = 16;
+    memcpy(header->subchunk2Id, "data", 4);
+    header->subchunk2Size = waveDataSize;
+}
 /* Global FFT Variables */
 arm_rfft_fast_instance_f32 fft_handler;
 float32_t fft_input_buffer[FFT_SIZE];  // Input for FFT (Float)
@@ -62,7 +93,9 @@ void DSP_Init(void)
 }
 
 /* Ring Buffer Settings */
-#define RB_SIZE (128 * 1024) // 32KB Buffer (Approx 170ms of stereo audio at 48kHz)
+/* Semaphore to wake up SD thread */
+osSemaphoreId_t SDRemaphoreHandle;
+#define RB_SIZE (128 * 1024) // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
 volatile uint32_t rb_head = 0;  // Write index
 volatile uint32_t rb_tail = 0;  // Read index
 volatile uint32_t rb_count = 0; // Available bytes
@@ -74,7 +107,18 @@ __attribute__((section(".axi_sram"))) FATFS SDFatFs;
 __attribute__((section(".axi_sram"))) FIL AudioFile;
 /* Global variable to track total bytes recorded */
 static uint32_t total_bytes_recorded = 0;
-const uint32_t TARGET_BYTES = (SAMPLE_RATE * 2 * 2 * 5); // 48kHz * 16bit * Stereo * 5 seconds
+
+#define RECORD_DURATION_SECONDS 5
+const uint32_t TARGET_BYTES = (SD_SAMPLE_RATE * 2 * 2 * RECORD_DURATION_SECONDS); // 48kHz * 16bit * Stereo * 5 seconds
+
+/* Audio recording to SD card variables */
+volatile uint8_t g_StartRecording = 0;                                      /* Set to 1 to start recording */
+volatile uint8_t g_RecordingComplete = 0;
+
+/*Queue will notify when half and full ready are done to not overqrite data*/
+osMessageQueueId_t SDQueueHandle;
+static uint32_t msg_count = 2;
+static uint32_t msg_size = sizeof(uint32_t);
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -106,19 +150,13 @@ static osThreadAttr_t sd_task_attr = {
     .priority = (osPriority_t)osPriorityNormal,
 };
 
-/* Semaphore to wake up SD thread */
-osSemaphoreId_t SDRemaphoreHandle;
 /* Audio_Record_To_SD_Task removed — SD recording merged into Audio_Loopback_Task */
 
 /* USER CODE BEGIN PV */
 int32_t ProcessStatus = 0;
 UART_HandleTypeDef huart3;
+uint32_t loop_count = 0;
 
-/* Audio recording to SD card variables */
-#define RECORD_DURATION_SECONDS 5
-#define SAMPLES_TO_RECORD (AUDIO_SAMPLE_RATE * RECORD_DURATION_SECONDS * 2) /* *2 for stereo */
-volatile uint8_t g_StartRecording = 0;                                      /* Set to 1 to start recording */
-volatile uint8_t g_RecordingComplete = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -139,9 +177,7 @@ static void MX_USART3_UART_Init(void);
 static void SD_Write_Task(void *argument);
 void RB_Write(uint8_t *data, uint32_t len);
 uint32_t RB_Read(uint8_t *buffer, uint32_t len);
-/* Audio_Record_To_SD_Task removed — merged into Audio_Loopback_Task */
 /* USER CODE BEGIN PFP */
-uint32_t loop_count = 0;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -220,6 +256,7 @@ int main(void)
   UART_Print("Entering main loop...\r\n");
   loop_count = 0;
 
+  SDQueueHandle = osMessageQueueNew(msg_count, msg_size, NULL);
   SDRemaphoreHandle = osSemaphoreNew(1U, 0, NULL);
   SEM_SDHandle = osThreadNew(SD_Write_Task, NULL, &sd_task_attr);
   UART_Print("Semaphore Init \r\n");
@@ -274,7 +311,9 @@ static void SystemClock_Config(void)
 {
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
   HAL_StatusTypeDef ret = HAL_OK;
+
 
   /* The voltage scaling allows optimizing the power consumption when the device is
      clocked below the maximum system frequency, to update the voltage scaling value
@@ -328,6 +367,12 @@ static void SystemClock_Config(void)
     {
     };
   }
+
+
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+    {
+      Error_Handler();
+    }
 }
 
 /**
@@ -403,14 +448,13 @@ static void Audio_Loopback_Task(void *argument)
   UART_Print("Audio Recording Started\r\n");
 
   /* ---------- Main loop  ---------- */
-  audio_rec_buffer_state = BUFFER_OFFSET_NONE;
   uint8_t flag_rec = 1;
   while (1)
     {
-      /* Use local copy of state to avoid race conditions with ISR */
-      uint32_t state = audio_rec_buffer_state;
+      uint32_t state;
+      osStatus_t status = osMessageQueueGet(SDQueueHandle, &state, NULL, osWaitForever);
 
-      if (state != BUFFER_OFFSET_NONE)
+      if (status == osOK)//check if message was received
       {
         /* Define Pointers for readability */
         int16_t *src; //source (ADC from codec)
@@ -464,11 +508,8 @@ static void Audio_Loopback_Task(void *argument)
             BSP_LED_Off(LED_OK);
         }
 
-        /* Clear Flag (CRITICAL: Must happen for BOTH cases) */
-        audio_rec_buffer_state = BUFFER_OFFSET_NONE;
       }
-      osDelay(1);
-    }
+    }//end while(1)
 }
 
 static void SD_Write_Task(void *argument)
@@ -479,6 +520,8 @@ static void SD_Write_Task(void *argument)
   UINT bytesWritten;/* File write/read counts */
   FRESULT fres;
 
+  uint32_t total_sd_bytes_written = 0;
+  WavHeader myWavHeader;
   /* ---------- SD card setup ---------- */
   osDelay(500); /* Let audio DMA stabilize */
 
@@ -487,10 +530,13 @@ static void SD_Write_Task(void *argument)
     fres = f_mount(&SDFatFs, "", 1);
     if (fres == FR_OK)
     {
-      fres = f_open(&AudioFile, "AUDIO.RAW", FA_CREATE_ALWAYS | FA_WRITE);
+      fres = f_open(&AudioFile, "AUDIO.WAV", FA_CREATE_ALWAYS | FA_WRITE);
       if (fres == FR_OK)
       {
-        UART_Print("SD ready - recording 5s to AUDIO.RAW\r\n");
+        UART_Print("SD ready - recording 5s to AUDIO.WAV\r\n");
+        memset(scratch_buf, 0, sizeof(WavHeader));
+        //f_write(&AudioFile, &myWavHeader, sizeof(WavHeader), &bytesWritten);
+        fres = f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
       }
       else
       {
@@ -522,17 +568,30 @@ static void SD_Write_Task(void *argument)
       RB_Read(scratch_buf, sizeof(scratch_buf));
       // Blocking Write to SD
       fres=f_write(&AudioFile, scratch_buf, sizeof(scratch_buf), &bytesWritten);
+      total_sd_bytes_written += bytesWritten; /* Track size */
     }
     else if(g_RecordingComplete == 1 && rb_count > 0){
     	//Flush Remaining Data (Only when recording is done)
     	uint32_t remaining = rb_count;
     	RB_Read(scratch_buf, remaining);
     	fres=f_write(&AudioFile, scratch_buf, remaining, &bytesWritten);
+    	total_sd_bytes_written += bytesWritten; /* Track size */
     	rb_count = 0;
 
     }
 
     if (g_RecordingComplete == 1 && rb_count == 0) {
+    	/* 3. Finalize Header */
+			UART_Print("Finalizing WAV Header...\r\n");
+
+			// Go back to beginning of file
+			f_lseek(&AudioFile, 0);
+
+			// Fill header with correct size
+			Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
+			memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
+			// Overwrite the placeholder
+			fres = f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
             // We are done recording AND the buffer is fully drained
             f_close(&AudioFile);
             //f_mount(NULL, "", 0);
@@ -550,7 +609,7 @@ void RB_Write(uint8_t *data, uint32_t len)
 {
   if ((rb_count + len) > RB_SIZE)
   {
-    //UART_Print("Buffer Overflow!\r\n"); // SD card is too slow!
+    //UART_Print("Buffer Overflow!\r\n"); // SD card is too slow
 	BSP_LED_On(LED_ERROR);
     return;
   }

@@ -575,35 +575,38 @@ __weak HAL_StatusTypeDef MX_SAI1_Block_B_Init(SAI_HandleTypeDef *hsai, MX_SAI_Co
   */
 __weak HAL_StatusTypeDef MX_SAI1_ClockConfig(SAI_HandleTypeDef *hsai, uint32_t SampleRate)
 {
-  /* Prevent unused argument(s) compilation warning */
-  UNUSED(hsai);
+	  UNUSED(hsai);
 
-  RCC_PeriphCLKInitTypeDef rcc_ex_clk_init_struct;
-  HAL_RCCEx_GetPeriphCLKConfig(&rcc_ex_clk_init_struct);
+	  RCC_PeriphCLKInitTypeDef rcc_ex_clk_init_struct;
+	  HAL_RCCEx_GetPeriphCLKConfig(&rcc_ex_clk_init_struct);
 
-  /* Set the PLL configuration according to the audio frequency */
-  /* Set the PLL configuration according to the audio frequency */
-  if ((SampleRate == AUDIO_FREQUENCY_11K) || (SampleRate == AUDIO_FREQUENCY_22K) || (SampleRate == AUDIO_FREQUENCY_44K))
-  {
-    rcc_ex_clk_init_struct.PLL2.PLL2P = 36;
-    rcc_ex_clk_init_struct.PLL2.PLL2Q = 36;
-  }
-  else /* AUDIO_FREQUENCY_8K, AUDIO_FREQUENCY_16K, AUDIO_FREQUENCY_32K, AUDIO_FREQUENCY_48K, AUDIO_FREQUENCY_96K */
-  {
-    rcc_ex_clk_init_struct.PLL2.PLL2P = 8;//Change: prev 8
-    rcc_ex_clk_init_struct.PLL2.PLL2Q = 8;//Change: prev 8
-  }
-  rcc_ex_clk_init_struct.PLL2.PLL2N = 80;//Change: prev 80
+	  /* Set the PLL configuration */
+	  rcc_ex_clk_init_struct.PeriphClockSelection = RCC_PERIPHCLK_SAI1;
+	  rcc_ex_clk_init_struct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
 
-  rcc_ex_clk_init_struct.PeriphClockSelection = RCC_PERIPHCLK_SAI1;
-  rcc_ex_clk_init_struct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
-  rcc_ex_clk_init_struct.PLL2.PLL2R = 2;
+	  /* PLL2 Settings */
+	  rcc_ex_clk_init_struct.PLL2.PLL2P = 20;
+	  rcc_ex_clk_init_struct.PLL2.PLL2Q = 20;
+	  rcc_ex_clk_init_struct.PLL2.PLL2R = 2;
 
-  rcc_ex_clk_init_struct.PLL2.PLL2M = 80;//Change: prev 80
-  rcc_ex_clk_init_struct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_0;
-  rcc_ex_clk_init_struct.PLL2.PLL2VCOSEL = RCC_PLL2VCOMEDIUM;
-  rcc_ex_clk_init_struct.PLL2.PLL2FRACN = 0;
-  return HAL_RCCEx_PeriphCLKConfig(&rcc_ex_clk_init_struct);
+	  /* Input Divider */
+	  rcc_ex_clk_init_struct.PLL2.PLL2M = 5;  /* 25MHz / 5 = 5MHz Input */
+
+	  /* Multiplier */
+	  rcc_ex_clk_init_struct.PLL2.PLL2N = 98;
+
+	  /* Fractional Mode */
+	  rcc_ex_clk_init_struct.PLL2.PLL2FRACN = 2490; /* Do NOT set to 0 later! */
+
+	  /* Range Config - CRITICAL FIX */
+	  /* Your input is 5MHz, so you MUST use RANGE_2 (4 to 8 MHz) */
+	  rcc_ex_clk_init_struct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_2;
+
+	  rcc_ex_clk_init_struct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
+
+	  /* DELETE THE LINE THAT WAS HERE: rcc_ex_clk_init_struct.PLL2.PLL2FRACN = 0; */
+
+	  return HAL_RCCEx_PeriphCLKConfig(&rcc_ex_clk_init_struct);
 }
 
 #if (USE_HAL_SAI_REGISTER_CALLBACKS == 1)
