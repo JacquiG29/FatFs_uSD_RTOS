@@ -1,36 +1,50 @@
-# STM32H735G-DK Audio Recorder with SD Card Storage
+# STM32H735G-DK Audio Recorder & Player with SD Card Storage
 
 ## Overview
 
-This project implements a **real-time audio loopback and WAV recorder** on the STM32H735G-DK board. Audio from the **LINE_IN jack** is simultaneously played back through the **headphone jack** (loopback) and, on demand, recorded to the **SD card** as standard `.WAV` files.
+This project implements a **multi-mode audio system** on the STM32H735G-DK board with three selectable operating modes:
 
-The system uses **FreeRTOS** for multitasking, a **ring buffer** to decouple the fast audio DMA from the slower SD card writes, and **FatFs** for the FAT32 file system.
+| Mode | `g_Mode` | Description |
+|------|----------|-------------|
+| **PASSTHROUGH** | `0` | Routes LINE_IN audio directly to headphone output (loopback) |
+| **RECORD** | `1` | Records LINE_IN audio to SD card as `.WAV` files (headphone output is silent) |
+| **PLAY** | `2` | Plays `TEST.WAV` from SD card to headphone output |
+
+The mode is selected at compile time by setting `g_Mode` in `main.c` and reflashing. The USER button triggers the action for the selected mode. In all modes, the system uses **FreeRTOS** for multitasking, a **ring buffer** to decouple fast audio DMA from slower SD card I/O, and **FatFs** for the FAT32 file system.
 
 ---
 
 ## Hardware Path (Signal Flow)
 
+### MODE_PASSTHROUGH
 ```
-LINE_IN jack
-    |
-    v
-WM8994 Codec (ADC)
-    |
-    v
-SAI Peripheral --> DMA --> RecordBuffer (RAM_D3)
-    |                              |
-    |                              +--> memcpy --> PlayBuffer (RAM_D3)
-    |                              |                    |
-    |                              |                    v
-    |                              |              DMA --> SAI --> WM8994 (DAC) --> Headphone jack
-    |                              |
-    |                              +--> RB_Write() --> Ring Buffer (AXI_SRAM)
-    |                                                       |
-    |                                                       v
-    |                                                 SD_Write_Task
-    |                                                       |
-    |                                                       v
-    |                                                 SD Card (.WAV file)
+LINE_IN jack --> WM8994 (ADC) --> SAI RX DMA --> RecordBuffer
+                                                      |
+                                                      +--> memcpy --> PlayBuffer --> SAI TX DMA --> WM8994 (DAC) --> Headphone jack
+```
+
+### MODE_RECORD
+```
+LINE_IN jack --> WM8994 (ADC) --> SAI RX DMA --> RecordBuffer
+                                                      |
+                                                      +--> RB_Write() --> Ring Buffer (AXI_SRAM)
+                                                      |                        |
+                                                      |                        v
+                                                      |                  SD_Write_Task --> SD Card (REC_XX.WAV)
+                                                      |
+                                                      +--> memset(0) --> PlayBuffer --> (silence on headphone)
+```
+
+### MODE_PLAY
+```
+SD Card (TEST.WAV) --> SD_Write_Task --> f_read() --> RB_Write() --> Ring Buffer (AXI_SRAM)
+                                                                          |
+                                                                          v
+                           PlayBuffer <-- RB_Read() <-- Audio_Loopback_Task
+                                |
+                                v
+                          SAI TX DMA --> WM8994 (DAC) --> Headphone jack
+                          (zeros on underrun/end of file = silence)
 ```
 
 ---
@@ -52,8 +66,8 @@ The linker script (`STM32H735IGKX_FLASH.ld`) defines custom sections `.RAM_D3` a
 
 | Task                    | Priority          | Stack   | Role                                                  |
 |-------------------------|-------------------|---------|-------------------------------------------------------|
-| **Audio_Loopback_Task** | AboveNormal       | 8x min  | Processes DMA callbacks, does loopback copy, feeds ring buffer |
-| **SD_Write_Task**       | Normal            | 4 KB    | Mounts SD, scans for existing files, writes WAV data  |
+| **Audio_Loopback_Task** | AboveNormal       | 8x min  | Processes DMA callbacks; routes audio based on `g_Mode` (passthrough copy, record to ring buffer, or playback from ring buffer) |
+| **SD_Write_Task**       | Normal            | 4 KB    | Mounts SD, scans for existing files; in RECORD mode drains ring buffer to SD; in PLAY mode feeds ring buffer from SD |
 
 ---
 
@@ -93,16 +107,19 @@ HAL_Init() --> SystemClock_Config() --> BSP_LED_Init() --> BSP_PB_Init()
 3. BSP_AUDIO_IN_Record()  --> starts SAI RX DMA (begins capturing audio)
 4. LOOP FOREVER:
    a. Wait on SDQueueHandle for DMA message (HALF or FULL)
-   b. Determine which half of the buffer is ready
-   c. memcpy(src --> dst) for audio loopback
-   d. IF g_StartRecording AND not yet reached TARGET_BYTES:
-      - RB_Write() the audio chunk into the ring buffer
-      - Increment total_bytes_recorded
-      - Release semaphore to wake SD_Write_Task
-      - Toggle LED as heartbeat
-   e. IF target reached:
-      - Set g_RecordingComplete = 1
-      - Clear g_StartRecording
+   b. Determine which half of the buffer is ready (src/dst pointers)
+   c. SWITCH on g_Mode:
+      - MODE_PASSTHROUGH: memcpy(src --> dst) for audio loopback
+      - MODE_RECORD:
+          * memset(dst, 0) to silence headphone output
+          * IF g_StartRecording AND not yet reached TARGET_BYTES:
+            - RB_Write(src) into ring buffer
+            - Release semaphore to wake SD_Write_Task
+          * IF target reached: set g_RecordingComplete = 1
+      - MODE_PLAY:
+          * RB_Read(dst) to pull audio from ring buffer
+          * If underrun (not enough data): zero-pad remainder (silence)
+          * Release semaphore to wake SD_Write_Task for refill
 ```
 
 ### 3. SD_Write_Task (runs continuously)
@@ -112,9 +129,11 @@ HAL_Init() --> SystemClock_Config() --> BSP_LED_Init() --> BSP_PB_Init()
 2. Check SD card is present
 3. f_mount() the SD card
 4. SCAN existing REC_XX.WAV files (01-99) to find next index
-5. Print "SD mounted. Press USER button..."
+5. Print current mode and "Press USER button."
 6. LOOP FOREVER:
    a. LED ON (solid = ready), wait for g_ButtonPressed
+
+   === IF MODE_RECORD ===
    b. Build filename: "REC_XX.WAV"
    c. Reset all state (counters, ring buffer pointers, flags)
    d. f_open() new file, write placeholder WAV header (44 bytes)
@@ -126,7 +145,23 @@ HAL_Init() --> SystemClock_Config() --> BSP_LED_Init() --> BSP_PB_Init()
       - Break when g_RecordingComplete AND ring buffer drained
    g. Seek to file offset 0, write final WAV header with correct size
    h. f_close(), increment g_FileIndex, print summary
-   i. Debounce delay, go back to step (a)
+
+   === IF MODE_PLAY ===
+   b. f_open("TEST.WAV", FA_READ)
+   c. f_lseek() past 44-byte WAV header
+   d. Reset ring buffer (head, tail, count = 0)
+   e. PLAYBACK LOOP:
+      - Wait on semaphore (released by audio task after consuming data)
+      - If ring buffer has free space >= 4096 bytes:
+        * f_read() from SD into scratch_buf
+        * RB_Write() into ring buffer
+      - If bytesRead < 4096 (end of file):
+        * Wait until ring buffer drains below one DMA chunk
+        * Break
+   f. f_close(), print "Playback complete."
+
+   === BOTH MODES ===
+   i. Debounce delay (500ms), go back to step (a) for next button press
 ```
 
 ### 4. DMA Callbacks (interrupt context)
@@ -160,9 +195,13 @@ The ring buffer decouples the fast, real-time audio DMA from the variable-latenc
 | Location | AXI_SRAM (`.axi_sram` section) |
 | Capacity | ~400 ms of stereo 48 kHz / 16-bit audio |
 
-**Producer:** `Audio_Loopback_Task` via `RB_Write()` - writes DMA half-buffer chunks.
+**In RECORD mode:**
+- **Producer:** `Audio_Loopback_Task` via `RB_Write()` — writes DMA half-buffer chunks (mic data).
+- **Consumer:** `SD_Write_Task` via `RB_Read()` — reads in 4 KB (`scratch_buf`) chunks to write to SD.
 
-**Consumer:** `SD_Write_Task` via `RB_Read()` - reads in 4 KB (`scratch_buf`) chunks.
+**In PLAY mode (roles reversed):**
+- **Producer:** `SD_Write_Task` via `RB_Write()` — reads 4 KB chunks from SD file into ring buffer.
+- **Consumer:** `Audio_Loopback_Task` via `RB_Read()` — pulls data into `PlayBuffer` for DAC output.
 
 **Synchronization:**
 - `rb_head` (write index), `rb_tail` (read index), `rb_count` (bytes available)
@@ -200,13 +239,14 @@ Example: If SD card contains `REC_01.WAV`, `REC_02.WAV`, `REC_05.WAV` --> next r
 
 ## Important Variables Reference
 
-### Recording Control Flags
+### Mode & Control Flags
 
 | Variable | Type | Set By | Purpose |
 |----------|------|--------|---------|
-| `g_ButtonPressed` | `volatile uint8_t` | Button ISR (`BSP_PB_Callback`) | Signals SD task that user wants to record |
-| `g_StartRecording` | `volatile uint8_t` | SD_Write_Task | Tells audio task to start filling ring buffer |
-| `g_RecordingComplete` | `volatile uint8_t` | Audio_Loopback_Task | Signals SD task that target size was reached |
+| `g_Mode` | `volatile uint8_t` | Compile-time constant | Selects operating mode: `MODE_PASSTHROUGH` (0), `MODE_RECORD` (1), `MODE_PLAY` (2) |
+| `g_ButtonPressed` | `volatile uint8_t` | Button ISR (`BSP_PB_Callback`) | Signals SD task that user pressed the button |
+| `g_StartRecording` | `volatile uint8_t` | SD_Write_Task | Tells audio task to start filling ring buffer (RECORD mode only) |
+| `g_RecordingComplete` | `volatile uint8_t` | Audio_Loopback_Task | Signals SD task that target size was reached (RECORD mode only) |
 | `g_SDReady` | `volatile uint8_t` | SD_Write_Task | Indicates file is open and ready for data |
 | `g_FileIndex` | `uint32_t` | SD_Write_Task (scan + increment) | Current file number for `REC_XX.WAV` naming |
 
@@ -227,8 +267,10 @@ Example: If SD card contains `REC_01.WAV`, `REC_02.WAV`, `REC_05.WAV` --> next r
 |--------|------|----------|---------|
 | `RecordBuffer` | 4096 x `int16_t` (8 KB) | RAM_D3 | DMA fills this with ADC samples |
 | `PlayBuffer` | 4096 x `int16_t` (8 KB) | RAM_D3 | DMA reads this for DAC output |
-| `Audio_Ring_Buffer` | 128 KB | AXI_SRAM | Intermediate storage between audio and SD tasks |
-| `scratch_buf` | 4 KB | AXI_SRAM | Temporary buffer for SD card writes |
+| `RB_Rec_Buffer` | 128 KB | AXI_SRAM | Ring buffer: mic-to-SD (RECORD) or SD-to-DAC (PLAY) |
+| `scratch_buf` | 4 KB | AXI_SRAM | Temporary buffer for SD card reads/writes |
+| `File_Rec` | FIL | AXI_SRAM | FatFs file object for recording (RECORD mode) |
+| `File_Play` | FIL | AXI_SRAM | FatFs file object for playback (PLAY mode) |
 
 ### RTOS Synchronization Objects
 
@@ -285,14 +327,34 @@ Non-cacheable configuration is **critical** - without it, the CPU cache and DMA 
 | Trigger | Action |
 |---------|--------|
 | Power on / Reset | `main()` initializes HW, creates tasks, starts RTOS |
-| RTOS starts | `Audio_Loopback_Task` begins audio loopback immediately |
+| RTOS starts | `Audio_Loopback_Task` begins processing DMA buffers based on `g_Mode` |
 | RTOS starts | `SD_Write_Task` mounts SD, scans files, waits for button |
 | DMA half-transfer IRQ | Posts `BUFFER_OFFSET_HALF` to `SDQueueHandle` |
 | DMA full-transfer IRQ | Posts `BUFFER_OFFSET_FULL` to `SDQueueHandle` |
 | Message in `SDQueueHandle` | Wakes `Audio_Loopback_Task` to process buffer half |
 | USER button press | Sets `g_ButtonPressed = 1` via EXTI callback |
-| `g_ButtonPressed` detected | SD task opens file, sets `g_StartRecording = 1` |
-| `g_StartRecording == 1` | Audio task starts writing to ring buffer |
+
+### MODE_PASSTHROUGH
+| Trigger | Action |
+|---------|--------|
+| DMA callback | Audio task copies `RecordBuffer` to `PlayBuffer` (mic to headphone) |
+| USER button press | No effect (passthrough runs continuously) |
+
+### MODE_RECORD
+| Trigger | Action |
+|---------|--------|
+| `g_ButtonPressed` detected | SD task opens `REC_XX.WAV`, sets `g_StartRecording = 1` |
+| `g_StartRecording == 1` | Audio task writes mic data to ring buffer, outputs silence |
 | Semaphore released | Wakes SD task to drain ring buffer to SD card |
 | `total_bytes_recorded >= TARGET_BYTES` | Audio task sets `g_RecordingComplete = 1` |
-| `g_RecordingComplete == 1` + buffer drained | SD task finalizes WAV header, closes file, increments index |
+| `g_RecordingComplete == 1` + buffer drained | SD task finalizes WAV header, closes file, waits for next button press |
+
+### MODE_PLAY
+| Trigger | Action |
+|---------|--------|
+| `g_ButtonPressed` detected | SD task opens `TEST.WAV`, skips header, resets ring buffer |
+| SD task reads from file | `f_read()` into `scratch_buf`, then `RB_Write()` into ring buffer |
+| DMA callback | Audio task pulls data from ring buffer into `PlayBuffer` via `RB_Read()` |
+| Semaphore released | Wakes SD task to refill ring buffer from SD |
+| End of file (`bytesRead < 4096`) | SD task waits for buffer to drain, then closes file |
+| Playback complete | SD task waits for next button press to replay `TEST.WAV` |

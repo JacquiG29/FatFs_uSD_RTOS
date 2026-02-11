@@ -585,26 +585,22 @@ __weak HAL_StatusTypeDef MX_SAI1_ClockConfig(SAI_HandleTypeDef *hsai, uint32_t S
 	  rcc_ex_clk_init_struct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
 
 	  /* PLL2 Settings */
-	  rcc_ex_clk_init_struct.PLL2.PLL2P = 20;
-	  rcc_ex_clk_init_struct.PLL2.PLL2Q = 20;
-	  rcc_ex_clk_init_struct.PLL2.PLL2R = 2;
+	  rcc_ex_clk_init_struct.PLL2.PLL2P = 20;/*Original: 8*/
+	  rcc_ex_clk_init_struct.PLL2.PLL2Q = 20;/*Original: 8*/
+	  rcc_ex_clk_init_struct.PLL2.PLL2R = 2;/*Original: 2*/
 
 	  /* Input Divider */
-	  rcc_ex_clk_init_struct.PLL2.PLL2M = 5;  /* 25MHz / 5 = 5MHz Input */
+	  rcc_ex_clk_init_struct.PLL2.PLL2M = 5;  /* 25MHz / 5 = 5MHz Input Original: 5*/
 
 	  /* Multiplier */
-	  rcc_ex_clk_init_struct.PLL2.PLL2N = 98;
+	  rcc_ex_clk_init_struct.PLL2.PLL2N = 98;//Original: 80
 
+	  /* Range Config  */
+	  /* If  input is 5MHz, use RANGE_2 (4 to 8 MHz) */
+	  rcc_ex_clk_init_struct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_2;/* Original: RCC_PLL2VCIRANGE_0 */
+	  rcc_ex_clk_init_struct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;/* Original: RCC_PLL2VCOMEDIUM */
 	  /* Fractional Mode */
-	  rcc_ex_clk_init_struct.PLL2.PLL2FRACN = 2490; /* Do NOT set to 0 later! */
-
-	  /* Range Config - CRITICAL FIX */
-	  /* Your input is 5MHz, so you MUST use RANGE_2 (4 to 8 MHz) */
-	  rcc_ex_clk_init_struct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_2;
-
-	  rcc_ex_clk_init_struct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
-
-	  /* DELETE THE LINE THAT WAS HERE: rcc_ex_clk_init_struct.PLL2.PLL2FRACN = 0; */
+	  rcc_ex_clk_init_struct.PLL2.PLL2FRACN = 2490; /* Original: 0 */
 
 	  return HAL_RCCEx_PeriphCLKConfig(&rcc_ex_clk_init_struct);
 }
