@@ -36,16 +36,27 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-#define FFT_SIZE 1024 // Size of FFT (must be power of 2: 256, 512, 1024, 2048)
+int32_t ProcessStatus = 0;
+UART_HandleTypeDef huart3;
+
 #define SD_SAMPLE_RATE 48000
 
-/* ---- Buffer state enum (same pattern as reference) ---- */
 typedef enum
 {
   BUFFER_OFFSET_NONE = 0,
   BUFFER_OFFSET_HALF = 1,
   BUFFER_OFFSET_FULL = 2,
 } BUFFER_StateTypeDef;
+
+typedef enum
+{
+	MODE_PASSTHROUGH = 0, // ROUTE INPUT TO OUTPUT
+	MODE_RECORD      = 1, // RECORD TO SD CARD
+	MODE_PLAY        = 2, // PLAY FROM SD CARD
+} Operation_StateTypeDef;
+
+/* ===== SET THIS BEFORE FLASHING TO SELECT MODE ===== */
+volatile uint8_t g_Mode = MODE_PASSTHROUGH; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
 
 /* WAV Header Structure */
 typedef struct {
@@ -80,31 +91,20 @@ void Create_WAV_Header(WavHeader *header, uint32_t waveDataSize) {
     memcpy(header->subchunk2Id, "data", 4);
     header->subchunk2Size = waveDataSize;
 }
-/* Global FFT Variables */
-arm_rfft_fast_instance_f32 fft_handler;
-float32_t fft_input_buffer[FFT_SIZE];  // Input for FFT (Float)
-float32_t fft_output_buffer[FFT_SIZE]; // Output of FFT
-float32_t fft_magnitude[FFT_SIZE / 2]; // Magnitude result
-
-/* Initialization Function (Call this once in main or task init) */
-void DSP_Init(void)
-{
-  arm_rfft_fast_init_f32(&fft_handler, FFT_SIZE);
-}
 
 /* Ring Buffer Settings */
-/* Semaphore to wake up SD thread */
-osSemaphoreId_t SDRemaphoreHandle;
 #define RB_SIZE (128 * 1024) // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
 volatile uint32_t rb_head = 0;  // Write index
 volatile uint32_t rb_tail = 0;  // Read index
 volatile uint32_t rb_count = 0; // Available bytes
 
-__attribute__((section(".axi_sram"))) uint8_t Audio_Ring_Buffer[RB_SIZE];
+__attribute__((section(".axi_sram"))) uint8_t RB_Rec_Buffer[RB_SIZE];// From Mic
+__attribute__((section(".axi_sram"))) uint8_t RB_Play_Buffer[RB_SIZE]; // To Speaker
 /* Create a temporary buffer for SD writing to avoid reading 1 byte at a time */
-__attribute__((section(".axi_sram"))) uint8_t scratch_buf[4096];
+__attribute__((section(".axi_sram"))) uint8_t scratch_buf[4096];// Shared temp buffer
 __attribute__((section(".axi_sram"))) FATFS SDFatFs;
-__attribute__((section(".axi_sram"))) FIL AudioFile;
+__attribute__((section(".axi_sram"))) FIL File_Rec;
+__attribute__((section(".axi_sram"))) FIL File_Play;
 /* Global variable to track total bytes recorded */
 static uint32_t total_bytes_recorded = 0;
 
@@ -112,14 +112,12 @@ static uint32_t total_bytes_recorded = 0;
 const uint32_t TARGET_BYTES = (SD_SAMPLE_RATE * 2 * 2 * RECORD_DURATION_SECONDS); // 48kHz * 16bit * Stereo * 5 seconds
 
 /* Audio recording to SD card variables */
-volatile uint8_t g_StartRecording = 0;                                      /* Set to 1 to start recording */
+volatile uint8_t g_StartRecording = 0; /* Set to 1 to start recording */
 volatile uint8_t g_RecordingComplete = 0;
-volatile uint8_t g_SDReady = 0;                                             /* Set to 1 when SD file is open and ready */
-volatile uint8_t g_ButtonPressed = 0;                                       /* Set to 1 by button ISR */
-static uint32_t g_FileIndex = 1;                                            /* Increments per recording: REC_01, REC_02, ... */
+volatile uint8_t g_SDReady = 0; /* Set to 1 when SD file is open and ready */
+volatile uint8_t g_ButtonPressed = 0; /* Set to 1 by button ISR */
+static uint32_t g_FileIndex = 1; /* Increments per recording: REC_01, REC_02, ... */
 
-/*Queue will notify when half and full ready are done to not overqrite data*/
-osMessageQueueId_t SDQueueHandle;
 static uint32_t msg_count = 2;
 static uint32_t msg_size = sizeof(uint32_t);
 /* USER CODE END PTD */
@@ -134,12 +132,10 @@ static uint32_t msg_size = sizeof(uint32_t);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
-osThreadId_t FatFsThreadHandle, StatusThreadHandle;
-static osThreadAttr_t fatfs_attr = {
-    .priority = osPriorityNormal,
-    .stack_size = 2 * configMINIMAL_STACK_SIZE,
-};
+/*Queue will notify when half and full ready are done to not overqrite data*/
+osMessageQueueId_t SDQueueHandle;
+/* Semaphore to wake up SD thread */
+osSemaphoreId_t SDRemaphoreHandle;
 
 osThreadId_t AudioTaskHandle;
 static osThreadAttr_t audio_attr = {
@@ -156,9 +152,7 @@ static osThreadAttr_t sd_task_attr = {
 /* Audio_Record_To_SD_Task removed — SD recording merged into Audio_Loopback_Task */
 
 /* USER CODE BEGIN PV */
-int32_t ProcessStatus = 0;
-UART_HandleTypeDef huart3;
-uint32_t loop_count = 0;
+
 
 /* USER CODE END PV */
 
@@ -171,7 +165,6 @@ static void MPU_Config(void);
 #else
 #define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
 #endif /* __GNUC__ */
-static void CPU_CACHE_Enable(void);
 static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void STATUS_Thread(void *argument);
@@ -180,6 +173,7 @@ static void MX_USART3_UART_Init(void);
 static void SD_Write_Task(void *argument);
 void RB_Write(uint8_t *data, uint32_t len);
 uint32_t RB_Read(uint8_t *buffer, uint32_t len);
+uint32_t RB_GetFreeSpace(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -187,11 +181,6 @@ uint32_t RB_Read(uint8_t *buffer, uint32_t len);
 /* USER CODE BEGIN 0 */
 void UART_Print(const char *str);
 
-/* Simple UART print function */
-void UART_Print(const char *str)
-{
-  HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
-}
 /* USER CODE END 0 */
 
 /**
@@ -258,7 +247,6 @@ int main(void)
   UART_Print("\r\n END CONFIG\r\n");
 
   UART_Print("Entering main loop...\r\n");
-  loop_count = 0;
 
   SDQueueHandle = osMessageQueueNew(msg_count, msg_size, NULL);
   SDRemaphoreHandle = osSemaphoreNew(1U, 0, NULL);
@@ -270,12 +258,6 @@ int main(void)
 
   /* Infinite loop */
 
-  /*fatfs_attr.name = "FATFS";
-  FatFsThreadHandle = osThreadNew(MX_FATFS_Process, NULL, (const osThreadAttr_t *)&fatfs_attr);
-
-  fatfs_attr.name = "STATUS";
-  StatusThreadHandle = osThreadNew(STATUS_Thread, NULL, (const osThreadAttr_t *)&fatfs_attr);
-*/
   // In main.c - Start audio loopback (needed to generate SAI clock for recording)
   AudioTaskHandle = osThreadNew(Audio_Loopback_Task, NULL, &audio_attr);
 
@@ -463,8 +445,6 @@ static void Audio_Loopback_Task(void *argument)
         int16_t *src; //source (ADC from codec)
         int16_t *dst; //destiny (DAC from codec)
         uint32_t bytes_to_process = (BUFFER_SIZE / 2) * sizeof(int16_t);
-
-
         /* Assign Pointers based on State */
         if (state == BUFFER_OFFSET_HALF)
         {
@@ -479,34 +459,51 @@ static void Audio_Loopback_Task(void *argument)
             dst = &PlayBuffer[BUFFER_SIZE / 2];
         }
 
-        /* Audio Loopback (Copy Record -> Play) */
-        memcpy(dst, src, bytes_to_process);
-
-        /* SD Card Recording (Write to Ring Buffer) */
-        if (g_StartRecording && (total_bytes_recorded < TARGET_BYTES))
+        if (g_Mode == MODE_PLAY)
         {
-            RB_Write((uint8_t *)src, bytes_to_process);//write to RAM ADC data
+        	/* Pull data from Ring Buffer */
+		    uint32_t bytes_fetched = RB_Read((uint8_t*)dst, bytes_to_process);
 
-            total_bytes_recorded += bytes_to_process;
-            osSemaphoreRelease(SDRemaphoreHandle);
-
-            /* Visual Heartbeat */
-            static int toggle_cnt = 0;
-            if (++toggle_cnt > 48) {
-                BSP_LED_Toggle(LED_OK);
-                toggle_cnt = 0;
-            }
+		    /* If buffer empty (Underrun or finished), play silence */
+			if (bytes_fetched < bytes_to_process)
+			{
+				memset(((uint8_t*)dst) + bytes_fetched, 0, bytes_to_process - bytes_fetched);
+			}
+			osSemaphoreRelease(SDRemaphoreHandle);
         }
-        else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
-        {
-            /* Recording Finished */
-            g_StartRecording = 0;
-            g_RecordingComplete = 1;
-            UART_Print("Audio Task: Target Size Reached!\r\n");
-            BSP_LED_Off(LED_OK);
+        else if (g_Mode == MODE_PASSTHROUGH){
+			/* Audio Loopback (Copy Record -> Play) */
+			memcpy(dst, src, bytes_to_process);
         }
+        else if (g_Mode == MODE_RECORD){
+			/* Output silence — don't route mic to headphone during recording */
+			memset(dst, 0, bytes_to_process);
 
-      }
+			/* SD Card Recording (Write to Ring Buffer) */
+			if (g_StartRecording && (total_bytes_recorded < TARGET_BYTES))
+			{
+				RB_Write((uint8_t *)src, bytes_to_process);//write to RAM ADC data
+
+				total_bytes_recorded += bytes_to_process;
+				osSemaphoreRelease(SDRemaphoreHandle);
+
+				/* Visual Heartbeat */
+				static int toggle_cnt = 0;
+				if (++toggle_cnt > 48) {
+					BSP_LED_Toggle(LED_OK);
+					toggle_cnt = 0;
+				}
+			}
+			else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
+			{
+				/* Recording Finished */
+				g_StartRecording = 0;
+				g_RecordingComplete = 1;
+				UART_Print("Audio Task: Target Size Reached!\r\n");
+				BSP_LED_Off(LED_OK);
+			}
+        }
+      }//osOK
     }//end while(1)
 }
 
@@ -555,7 +552,8 @@ static void SD_Write_Task(void *argument)
     UART_Print(msg);
   }
 
-  UART_Print("SD mounted. Press USER button to start recording.\r\n");
+  sprintf(msg, "SD mounted. Mode=%d. Press USER button.\r\n", g_Mode);
+  UART_Print(msg);
 
   /* ========== Main loop: wait for button -> record -> repeat ========== */
   while (1)
@@ -568,82 +566,145 @@ static void SD_Write_Task(void *argument)
     }
     g_ButtonPressed = 0;
 
-    /* --- Build filename: REC_01.WAV, REC_02.WAV, ... --- */
-    sprintf(filename, "REC_%02lu.WAV", g_FileIndex);
-    sprintf(msg, "Recording %s ...\r\n", filename);
-    UART_Print(msg);
+    /* ================= RECORD MODE ================= */
+    if (g_Mode == MODE_RECORD) {
+		/* --- Build filename: REC_01.WAV, REC_02.WAV, ... --- */
+		sprintf(filename, "REC_%02lu.WAV", g_FileIndex);
+		sprintf(msg, "Recording %s ...\r\n", filename);
+		UART_Print(msg);
 
-    /* --- Reset state for new recording --- */
-    total_sd_bytes_written = 0;
-    total_bytes_recorded = 0;
-    g_RecordingComplete = 0;
-    g_StartRecording = 0;
-    g_SDReady = 0;
-    rb_head = 0;
-    rb_tail = 0;
-    rb_count = 0;
+		/* --- Reset state for new recording --- */
+		total_sd_bytes_written = 0;
+		total_bytes_recorded = 0;
+		g_RecordingComplete = 0;
+		g_StartRecording = 0;
+		g_SDReady = 0;
+		rb_head = 0;
+		rb_tail = 0;
+		rb_count = 0;
 
-    /* --- Open file and write placeholder WAV header --- */
-    fres = f_open(&AudioFile, filename, FA_CREATE_ALWAYS | FA_WRITE);
-    if (fres != FR_OK)
-    {
-      sprintf(msg, "f_open failed: %d\r\n", fres);
-      UART_Print(msg);
-      continue; /* Go back to waiting for button */
+		/* --- Open file and write placeholder WAV header --- */
+		fres = f_open(&File_Rec, filename, FA_CREATE_ALWAYS | FA_WRITE);
+		if (fres != FR_OK)
+		{
+		  sprintf(msg, "f_open failed: %d\r\n", fres);
+		  UART_Print(msg);
+		  continue; /* Go back to waiting for button */
+		}
+
+		memset(scratch_buf, 0, sizeof(WavHeader));
+		fres = f_write(&File_Rec, scratch_buf, sizeof(WavHeader), &bytesWritten);
+		g_SDReady = 1;        /* Signal audio task: OK to start filling ring buffer */
+		g_StartRecording = 1; /* Start recording immediately */
+
+		BSP_LED_Off(LED_OK);  /* LED off during recording (heartbeat will toggle it) */
+
+		/* --- Recording loop: drain ring buffer to SD --- */
+		while (1)
+		{
+		  osSemaphoreAcquire(SDRemaphoreHandle, 100);
+
+		  if (rb_count >= sizeof(scratch_buf) && total_sd_bytes_written < TARGET_BYTES)
+		  {
+			uint32_t chunk = sizeof(scratch_buf);
+			if (total_sd_bytes_written + chunk > TARGET_BYTES)
+			  chunk = TARGET_BYTES - total_sd_bytes_written;
+			RB_Read(scratch_buf, chunk);
+			fres = f_write(&File_Rec, scratch_buf, chunk, &bytesWritten);
+			total_sd_bytes_written += bytesWritten;
+		  }
+		  else if (g_RecordingComplete == 1 && rb_count > 0 && total_sd_bytes_written < TARGET_BYTES)
+		  {
+			uint32_t remaining = rb_count;
+			if (total_sd_bytes_written + remaining > TARGET_BYTES)
+			  remaining = TARGET_BYTES - total_sd_bytes_written;
+			RB_Read(scratch_buf, remaining);
+			fres = f_write(&File_Rec, scratch_buf, remaining, &bytesWritten);
+			total_sd_bytes_written += bytesWritten;
+			rb_count = 0;
+		  }
+
+		  /* Check if recording is done */
+		  if (g_RecordingComplete == 1 && (rb_count == 0 || total_sd_bytes_written >= TARGET_BYTES))
+			break;
+		}
+
+		/* --- Finalize WAV header and close file --- */
+		UART_Print("Finalizing WAV Header...\r\n");
+		f_lseek(&File_Rec, 0);
+		Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
+		memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
+		f_write(&File_Rec, scratch_buf, sizeof(WavHeader), &bytesWritten);
+		f_close(&File_Rec);
+
+		sprintf(msg, "Saved %s (%lu bytes)\r\n", filename, total_sd_bytes_written);
+		UART_Print(msg);
+		BSP_LED_On(LED_OK);
+
+		g_FileIndex++;
+		g_SDReady = 0;
+    }/* ================= PLAYBACK MODE ================= */
+    else if (g_Mode == MODE_PLAY) {
+		UINT bytesRead;
+		char play_filename[16];
+
+		sprintf(play_filename, "TEST.WAV");
+
+		fres = f_open(&File_Play, play_filename, FA_READ);
+		if (fres != FR_OK) {
+			sprintf(msg, "Cannot open %s: %d\r\n", play_filename, fres);
+			UART_Print(msg);
+			continue; /* Back to waiting for button */
+		}
+
+		/* Skip WAV header (44 bytes) */
+		f_lseek(&File_Play, 44);
+
+		/* Reset Ring Buffer */
+		rb_head = 0;
+		rb_tail = 0;
+		rb_count = 0;
+
+		sprintf(msg, "Playing %s ...\r\n", play_filename);
+		UART_Print(msg);
+		BSP_LED_Off(LED_OK);
+
+		/* --- Playback loop: feed ring buffer from SD --- */
+		while (1) {
+			osSemaphoreAcquire(SDRemaphoreHandle, 100);
+
+			if (RB_GetFreeSpace() >= sizeof(scratch_buf)) {
+				fres = f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
+
+				if (fres == FR_OK && bytesRead > 0) {
+					RB_Write(scratch_buf, bytesRead);
+
+					/* Visual Heartbeat */
+					static int play_toggle = 0;
+					if (++play_toggle > 48) {
+						BSP_LED_Toggle(LED_OK);
+						play_toggle = 0;
+					}
+				}
+
+				if (bytesRead < sizeof(scratch_buf)) {
+					/* End of file — let audio task consume what's left */
+					uint32_t drain_bytes = (BUFFER_SIZE / 2) * sizeof(int16_t);
+					UART_Print("End of file reached, draining...\r\n");
+					while (rb_count >= drain_bytes) {
+						osDelay(10);
+					}
+					/* Remaining bytes < one DMA chunk, audio task will zero-pad */
+					osDelay(100); /* Let last chunk play out */
+					break;
+				}
+			}
+		}
+
+		f_close(&File_Play);
+		UART_Print("Playback complete.\r\n");
+		BSP_LED_On(LED_OK);
     }
-
-    memset(scratch_buf, 0, sizeof(WavHeader));
-    fres = f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
-    g_SDReady = 1;        /* Signal audio task: OK to start filling ring buffer */
-    g_StartRecording = 1; /* Start recording immediately */
-
-    BSP_LED_Off(LED_OK);  /* LED off during recording (heartbeat will toggle it) */
-
-    /* --- Recording loop: drain ring buffer to SD --- */
-    while (1)
-    {
-      osSemaphoreAcquire(SDRemaphoreHandle, 100);
-
-      if (rb_count >= sizeof(scratch_buf) && total_sd_bytes_written < TARGET_BYTES)
-      {
-        uint32_t chunk = sizeof(scratch_buf);
-        if (total_sd_bytes_written + chunk > TARGET_BYTES)
-          chunk = TARGET_BYTES - total_sd_bytes_written;
-        RB_Read(scratch_buf, chunk);
-        fres = f_write(&AudioFile, scratch_buf, chunk, &bytesWritten);
-        total_sd_bytes_written += bytesWritten;
-      }
-      else if (g_RecordingComplete == 1 && rb_count > 0 && total_sd_bytes_written < TARGET_BYTES)
-      {
-        uint32_t remaining = rb_count;
-        if (total_sd_bytes_written + remaining > TARGET_BYTES)
-          remaining = TARGET_BYTES - total_sd_bytes_written;
-        RB_Read(scratch_buf, remaining);
-        fres = f_write(&AudioFile, scratch_buf, remaining, &bytesWritten);
-        total_sd_bytes_written += bytesWritten;
-        rb_count = 0;
-      }
-
-      /* Check if recording is done */
-      if (g_RecordingComplete == 1 && (rb_count == 0 || total_sd_bytes_written >= TARGET_BYTES))
-        break;
-    }
-
-    /* --- Finalize WAV header and close file --- */
-    UART_Print("Finalizing WAV Header...\r\n");
-    f_lseek(&AudioFile, 0);
-    Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
-    memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
-    f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
-    f_close(&AudioFile);
-
-    sprintf(msg, "Saved %s (%lu bytes)\r\n", filename, total_sd_bytes_written);
-    UART_Print(msg);
-    BSP_LED_On(LED_OK);
-
-    g_FileIndex++;
-    g_SDReady = 0;
-
     /* Small delay to debounce before accepting next button press */
     osDelay(500);
   }
@@ -664,14 +725,14 @@ void RB_Write(uint8_t *data, uint32_t len)
     if (len <= bytes_to_end)
     {
       /* Case A: Data fits in the remaining space */
-      memcpy(&Audio_Ring_Buffer[rb_head], data, len);
+      memcpy(&RB_Rec_Buffer[rb_head], data, len);
       rb_head += len;
     }
     else
     {
       /* Case B: Data wraps around */
-      memcpy(&Audio_Ring_Buffer[rb_head], data, bytes_to_end);
-      memcpy(&Audio_Ring_Buffer[0], &data[bytes_to_end], len - bytes_to_end);
+      memcpy(&RB_Rec_Buffer[rb_head], data, bytes_to_end);
+      memcpy(&RB_Rec_Buffer[0], &data[bytes_to_end], len - bytes_to_end);
       rb_head = len - bytes_to_end;
     }
 
@@ -692,7 +753,7 @@ uint32_t RB_Read(uint8_t *buffer, uint32_t len)
 
   for (uint32_t i = 0; i < len; i++)
   {
-    buffer[i] = Audio_Ring_Buffer[rb_tail];
+    buffer[i] = RB_Rec_Buffer[rb_tail];
     rb_tail = (rb_tail + 1) % RB_SIZE;
   }
 
@@ -701,6 +762,10 @@ uint32_t RB_Read(uint8_t *buffer, uint32_t len)
   __enable_irq();
 
   return len;
+}
+
+uint32_t RB_GetFreeSpace(void) {
+    return RB_SIZE - rb_count;
 }
 /* USER CODE BEGIN 4 */
 void BSP_PB_Callback(Button_TypeDef Button)
@@ -897,13 +962,10 @@ PUTCHAR_PROTOTYPE
   return ch;
 }
 
-static void CPU_CACHE_Enable(void)
+/* Simple UART print function */
+void UART_Print(const char *str)
 {
-  /* Enable I-Cache */
-  SCB_EnableICache();
-
-  /* Enable D-Cache */
-  SCB_EnableDCache();
+  HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
 }
 #ifdef USE_FULL_ASSERT
 /**

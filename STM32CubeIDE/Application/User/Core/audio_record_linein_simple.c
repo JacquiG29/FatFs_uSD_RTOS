@@ -78,7 +78,7 @@ int Audio_LoopbackInit(void)
     AudioOutInit.ChannelsNbr   = 2;
     AudioOutInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioOutInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioOutInit.Volume        = 20;
+    AudioOutInit.Volume        = 10;
 
     if (BSP_AUDIO_OUT_Init(0, &AudioOutInit) != BSP_ERROR_NONE)
     {
