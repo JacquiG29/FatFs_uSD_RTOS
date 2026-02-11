@@ -236,7 +236,26 @@ On boot, after mounting the SD card, `SD_Write_Task` scans for existing files `R
 Example: If SD card contains `REC_01.WAV`, `REC_02.WAV`, `REC_05.WAV` --> next recording will be `REC_06.WAV`.
 
 ---
+## Clocks calculation for SAI
+Digital Audio protocols (like SAI or I2S) need a "Master Clock" (MCLK) that is much faster than the sample rate to drive the internal logic of the audio chip (the WM8994). The standard multiplier is 512x.
+$$\text{Target Frequency} = 48,000 \text{ Hz} \times 512 = \mathbf{24,576,000 \text{ Hz}} \text{ (24.576 MHz)}$$
 
+The PLL (Phase Locked Loop) takes the Crystal clock (HSE) and transforms it according to the following Formula:
+$$f_{out} = \text{Input} \times \frac{N}{M \times P}$$
+Where:
+- Input (HSE): Physical crystal (25 MHz).
+- M (Divider): Pre-division to lower the input speed.
+- N (Multiplier): Increases the speed massively (VCO).
+- P (Divider): Final division to get the output.
+
+### Specific calculations for the implementation
+- The Input Divider (M)
+  - Code: PLL2M = 5
+  - Math: $25 \text{ MHz} / 5 = \mathbf{5 \text{ MHz}}$.
+- The Multiplier (N) - The "VCO"
+  - Code: PLL2M = 5
+  - Math: $25 \text{ MHz} / 5 = \mathbf{5 \text{ MHz}}$.
+---
 ## Important Variables Reference
 
 ### Mode & Control Flags
