@@ -108,12 +108,15 @@ __attribute__((section(".axi_sram"))) FIL AudioFile;
 /* Global variable to track total bytes recorded */
 static uint32_t total_bytes_recorded = 0;
 
-#define RECORD_DURATION_SECONDS 5
+#define RECORD_DURATION_SECONDS 15
 const uint32_t TARGET_BYTES = (SD_SAMPLE_RATE * 2 * 2 * RECORD_DURATION_SECONDS); // 48kHz * 16bit * Stereo * 5 seconds
 
 /* Audio recording to SD card variables */
 volatile uint8_t g_StartRecording = 0;                                      /* Set to 1 to start recording */
 volatile uint8_t g_RecordingComplete = 0;
+volatile uint8_t g_SDReady = 0;                                             /* Set to 1 when SD file is open and ready */
+volatile uint8_t g_ButtonPressed = 0;                                       /* Set to 1 by button ISR */
+static uint32_t g_FileIndex = 1;                                            /* Increments per recording: REC_01, REC_02, ... */
 
 /*Queue will notify when half and full ready are done to not overqrite data*/
 osMessageQueueId_t SDQueueHandle;
@@ -221,6 +224,7 @@ int main(void)
   /* Configure LED_OK and LED_ERROR */
   BSP_LED_Init(LED_OK);
   BSP_LED_Init(LED_ERROR);
+  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
   BSP_SD_Init(0);
   BSP_SD_DetectITConfig(0);
   MX_USART3_UART_Init();
@@ -448,7 +452,6 @@ static void Audio_Loopback_Task(void *argument)
   UART_Print("Audio Recording Started\r\n");
 
   /* ---------- Main loop  ---------- */
-  uint8_t flag_rec = 1;
   while (1)
     {
       uint32_t state;
@@ -468,11 +471,6 @@ static void Audio_Loopback_Task(void *argument)
             /* First Half Ready (0 to Half) */
             src = &RecordBuffer[0];
             dst = &PlayBuffer[0];
-            if (flag_rec == 1){
-            	g_StartRecording = 1;
-            	flag_rec = 2;
-            }
-
         }
         else /* BUFFER_OFFSET_FULL */
         {
@@ -515,92 +513,139 @@ static void Audio_Loopback_Task(void *argument)
 static void SD_Write_Task(void *argument)
 {
   char msg[64];
-  //FATFS SDFatFs;
-  //FIL AudioFile;
-  UINT bytesWritten;/* File write/read counts */
+  char filename[16];
+  UINT bytesWritten;
   FRESULT fres;
-
   uint32_t total_sd_bytes_written = 0;
   WavHeader myWavHeader;
+
   /* ---------- SD card setup ---------- */
   osDelay(500); /* Let audio DMA stabilize */
 
-  if (BSP_SD_IsDetected(0) == SD_PRESENT)
-  {
-    fres = f_mount(&SDFatFs, "", 1);
-    if (fres == FR_OK)
-    {
-      fres = f_open(&AudioFile, "AUDIO.WAV", FA_CREATE_ALWAYS | FA_WRITE);
-      if (fres == FR_OK)
-      {
-        UART_Print("SD ready - recording 5s to AUDIO.WAV\r\n");
-        memset(scratch_buf, 0, sizeof(WavHeader));
-        //f_write(&AudioFile, &myWavHeader, sizeof(WavHeader), &bytesWritten);
-        fres = f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
-      }
-      else
-      {
-        sprintf(msg, "f_open failed: %d\r\n", fres);
-        UART_Print(msg);
-      }
-    }
-    else
-    {
-      sprintf(msg, "f_mount failed: %d\r\n", fres);
-      UART_Print(msg);
-    }
-  }
-  else
+  if (BSP_SD_IsDetected(0) != SD_PRESENT)
   {
     UART_Print("No SD card - loopback only\r\n");
+    osThreadTerminate(osThreadGetId());
   }
 
+  fres = f_mount(&SDFatFs, "", 1);
+  if (fres != FR_OK)
+  {
+    sprintf(msg, "f_mount failed: %d\r\n", fres);
+    UART_Print(msg);
+    osThreadTerminate(osThreadGetId());
+  }
+
+  /* --- Scan SD card for existing REC_XX.WAV files to resume numbering --- */
+  {
+    FILINFO fno;
+    uint32_t max_index = 0;
+    char probe[16];
+
+    for (uint32_t i = 1; i <= 99; i++)
+    {
+      sprintf(probe, "REC_%02lu.WAV", i);
+      if (f_stat(probe, &fno) == FR_OK)
+      {
+        max_index = i;
+      }
+    }
+    g_FileIndex = max_index + 1;
+    sprintf(msg, "Next file index: REC_%02lu.WAV\r\n", g_FileIndex);
+    UART_Print(msg);
+  }
+
+  UART_Print("SD mounted. Press USER button to start recording.\r\n");
+
+  /* ========== Main loop: wait for button -> record -> repeat ========== */
   while (1)
   {
-    // Wait for signal from Audio Task (timeout 100ms)
-    osSemaphoreAcquire(SDRemaphoreHandle, 100);
-
-    // Check if we have enough data in Ring Buffer to make a write worth it
-    // Writing 4KB chunks is much more efficient than small chunks
-    if (rb_count >= sizeof(scratch_buf))
+    /* --- Idle: wait for button press --- */
+    BSP_LED_On(LED_OK); /* Solid LED = ready */
+    while (!g_ButtonPressed)
     {
-      // Read from Ring Buffer into Scratch Buffer
-      RB_Read(scratch_buf, sizeof(scratch_buf));
-      // Blocking Write to SD
-      fres=f_write(&AudioFile, scratch_buf, sizeof(scratch_buf), &bytesWritten);
-      total_sd_bytes_written += bytesWritten; /* Track size */
+      osDelay(50);
     }
-    else if(g_RecordingComplete == 1 && rb_count > 0){
-    	//Flush Remaining Data (Only when recording is done)
-    	uint32_t remaining = rb_count;
-    	RB_Read(scratch_buf, remaining);
-    	fres=f_write(&AudioFile, scratch_buf, remaining, &bytesWritten);
-    	total_sd_bytes_written += bytesWritten; /* Track size */
-    	rb_count = 0;
+    g_ButtonPressed = 0;
 
+    /* --- Build filename: REC_01.WAV, REC_02.WAV, ... --- */
+    sprintf(filename, "REC_%02lu.WAV", g_FileIndex);
+    sprintf(msg, "Recording %s ...\r\n", filename);
+    UART_Print(msg);
+
+    /* --- Reset state for new recording --- */
+    total_sd_bytes_written = 0;
+    total_bytes_recorded = 0;
+    g_RecordingComplete = 0;
+    g_StartRecording = 0;
+    g_SDReady = 0;
+    rb_head = 0;
+    rb_tail = 0;
+    rb_count = 0;
+
+    /* --- Open file and write placeholder WAV header --- */
+    fres = f_open(&AudioFile, filename, FA_CREATE_ALWAYS | FA_WRITE);
+    if (fres != FR_OK)
+    {
+      sprintf(msg, "f_open failed: %d\r\n", fres);
+      UART_Print(msg);
+      continue; /* Go back to waiting for button */
     }
 
-    if (g_RecordingComplete == 1 && rb_count == 0) {
-    	/* 3. Finalize Header */
-			UART_Print("Finalizing WAV Header...\r\n");
+    memset(scratch_buf, 0, sizeof(WavHeader));
+    fres = f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
+    g_SDReady = 1;        /* Signal audio task: OK to start filling ring buffer */
+    g_StartRecording = 1; /* Start recording immediately */
 
-			// Go back to beginning of file
-			f_lseek(&AudioFile, 0);
+    BSP_LED_Off(LED_OK);  /* LED off during recording (heartbeat will toggle it) */
 
-			// Fill header with correct size
-			Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
-			memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
-			// Overwrite the placeholder
-			fres = f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
-            // We are done recording AND the buffer is fully drained
-            f_close(&AudioFile);
-            //f_mount(NULL, "", 0);
-            UART_Print("SD Task: File Closed. Recording Saved.\r\n");
-            BSP_LED_On(LED_OK);
-            // Kill this task or suspend it to stop running
-            osThreadTerminate(osThreadGetId());
-        }
+    /* --- Recording loop: drain ring buffer to SD --- */
+    while (1)
+    {
+      osSemaphoreAcquire(SDRemaphoreHandle, 100);
 
+      if (rb_count >= sizeof(scratch_buf) && total_sd_bytes_written < TARGET_BYTES)
+      {
+        uint32_t chunk = sizeof(scratch_buf);
+        if (total_sd_bytes_written + chunk > TARGET_BYTES)
+          chunk = TARGET_BYTES - total_sd_bytes_written;
+        RB_Read(scratch_buf, chunk);
+        fres = f_write(&AudioFile, scratch_buf, chunk, &bytesWritten);
+        total_sd_bytes_written += bytesWritten;
+      }
+      else if (g_RecordingComplete == 1 && rb_count > 0 && total_sd_bytes_written < TARGET_BYTES)
+      {
+        uint32_t remaining = rb_count;
+        if (total_sd_bytes_written + remaining > TARGET_BYTES)
+          remaining = TARGET_BYTES - total_sd_bytes_written;
+        RB_Read(scratch_buf, remaining);
+        fres = f_write(&AudioFile, scratch_buf, remaining, &bytesWritten);
+        total_sd_bytes_written += bytesWritten;
+        rb_count = 0;
+      }
+
+      /* Check if recording is done */
+      if (g_RecordingComplete == 1 && (rb_count == 0 || total_sd_bytes_written >= TARGET_BYTES))
+        break;
+    }
+
+    /* --- Finalize WAV header and close file --- */
+    UART_Print("Finalizing WAV Header...\r\n");
+    f_lseek(&AudioFile, 0);
+    Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
+    memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
+    f_write(&AudioFile, scratch_buf, sizeof(WavHeader), &bytesWritten);
+    f_close(&AudioFile);
+
+    sprintf(msg, "Saved %s (%lu bytes)\r\n", filename, total_sd_bytes_written);
+    UART_Print(msg);
+    BSP_LED_On(LED_OK);
+
+    g_FileIndex++;
+    g_SDReady = 0;
+
+    /* Small delay to debounce before accepting next button press */
+    osDelay(500);
   }
 }
 
@@ -658,7 +703,13 @@ uint32_t RB_Read(uint8_t *buffer, uint32_t len)
   return len;
 }
 /* USER CODE BEGIN 4 */
-
+void BSP_PB_Callback(Button_TypeDef Button)
+{
+  if (Button == BUTTON_USER)
+  {
+    g_ButtonPressed = 1;
+  }
+}
 /* USER CODE END 4 */
 
 /**

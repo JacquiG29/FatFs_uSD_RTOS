@@ -5,7 +5,7 @@ import os
 # ==========================================
 # CONFIGURATION
 # ==========================================
-FILENAME = 'AUDIO.WAV'              # <--- REPLACE with your file name
+FILENAME = 'REC_01.WAV'              # <--- REPLACE with your file name
 SAMPLE_RATE = 48000                 # Your sample rate
 CHANNELS = 2                        # Stereo (TDM padding already stripped by firmware)
 # ==========================================
