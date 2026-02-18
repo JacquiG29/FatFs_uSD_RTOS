@@ -78,7 +78,7 @@ int Audio_LoopbackInit(void)
     AudioOutInit.ChannelsNbr   = 2;
     AudioOutInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioOutInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioOutInit.Volume        = 10;
+    AudioOutInit.Volume        = 80;
 
     if (BSP_AUDIO_OUT_Init(0, &AudioOutInit) != BSP_ERROR_NONE)
     {
@@ -91,7 +91,7 @@ int Audio_LoopbackInit(void)
     AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
     AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioInInit.Volume        = 100;
+    AudioInInit.Volume        = 80;
 
     /* Instance 0 = SAI/LINE_IN (NOT Instance 2 which is DFSDM/digital mics) */
     if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)

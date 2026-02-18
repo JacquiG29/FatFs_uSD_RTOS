@@ -36,6 +36,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
+char version[] = "Version 1.0.0";
 int32_t ProcessStatus = 0;
 UART_HandleTypeDef huart3;
 
@@ -50,63 +51,72 @@ typedef enum
 
 typedef enum
 {
-	MODE_PASSTHROUGH = 0, // ROUTE INPUT TO OUTPUT
-	MODE_RECORD      = 1, // RECORD TO SD CARD
-	MODE_PLAY        = 2, // PLAY FROM SD CARD
+  MODE_PASSTHROUGH = 0, // ROUTE INPUT TO OUTPUT
+  MODE_RECORD = 1,      // RECORD TO SD CARD
+  MODE_PLAY = 2,        // PLAY FROM SD CARD
+  MODE_FULL_DUPLEX = 3, // PLAY AND RECORD FROM SD CARD
 } Operation_StateTypeDef;
 
+typedef struct
+{
+  uint8_t *buffer;         // Pointer to the actual data array (AXI SRAM)
+  uint32_t size;           // Total size
+  volatile uint32_t head;  // Write index
+  volatile uint32_t tail;  // Read index
+  volatile uint32_t count; // Available bytes
+} RingBuffer_t;
 /* ===== SET THIS BEFORE FLASHING TO SELECT MODE ===== */
-volatile uint8_t g_Mode = MODE_PASSTHROUGH; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
+volatile uint8_t g_Mode = MODE_FULL_DUPLEX; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
 
 /* WAV Header Structure */
-typedef struct {
-    char chunkId[4];        // "RIFF"
-    uint32_t chunkSize;     // Total file size - 8
-    char format[4];         // "WAVE"
-    char subchunk1Id[4];    // "fmt "
-    uint32_t subchunk1Size; // 16 for PCM
-    uint16_t audioFormat;   // 1 for PCM
-    uint16_t numChannels;   // 2 for Stereo
-    uint32_t sampleRate;    // 48000
-    uint32_t byteRate;      // sampleRate * numChannels * bitsPerSample/8
-    uint16_t blockAlign;    // numChannels * bitsPerSample/8
-    uint16_t bitsPerSample; // 16
-    char subchunk2Id[4];    // "data"
-    uint32_t subchunk2Size; // Data size (bytes)
+typedef struct
+{
+  char chunkId[4];        // "RIFF"
+  uint32_t chunkSize;     // Total file size - 8
+  char format[4];         // "WAVE"
+  char subchunk1Id[4];    // "fmt "
+  uint32_t subchunk1Size; // 16 for PCM
+  uint16_t audioFormat;   // 1 for PCM
+  uint16_t numChannels;   // 2 for Stereo
+  uint32_t sampleRate;    // 48000
+  uint32_t byteRate;      // sampleRate * numChannels * bitsPerSample/8
+  uint16_t blockAlign;    // numChannels * bitsPerSample/8
+  uint16_t bitsPerSample; // 16
+  char subchunk2Id[4];    // "data"
+  uint32_t subchunk2Size; // Data size (bytes)
 } __attribute__((packed)) WavHeader;
 
 /* Helper to prepare header */
-void Create_WAV_Header(WavHeader *header, uint32_t waveDataSize) {
-    memcpy(header->chunkId, "RIFF", 4);
-    header->chunkSize = waveDataSize + 36; // 36 + dataSize
-    memcpy(header->format, "WAVE", 4);
-    memcpy(header->subchunk1Id, "fmt ", 4);
-    header->subchunk1Size = 16;
-    header->audioFormat = 1; // PCM
-    header->numChannels = 2; // Stereo
-    header->sampleRate = SD_SAMPLE_RATE;
-    header->byteRate = SD_SAMPLE_RATE * 2 * 2; // 192000
-    header->blockAlign = 4;
-    header->bitsPerSample = 16;
-    memcpy(header->subchunk2Id, "data", 4);
-    header->subchunk2Size = waveDataSize;
+void Create_WAV_Header(WavHeader *header, uint32_t waveDataSize)
+{
+  memcpy(header->chunkId, "RIFF", 4);
+  header->chunkSize = waveDataSize + 36; // 36 + dataSize
+  memcpy(header->format, "WAVE", 4);
+  memcpy(header->subchunk1Id, "fmt ", 4);
+  header->subchunk1Size = 16;
+  header->audioFormat = 1; // PCM
+  header->numChannels = 2; // Stereo
+  header->sampleRate = SD_SAMPLE_RATE;
+  header->byteRate = SD_SAMPLE_RATE * 2 * 2; // 192000
+  header->blockAlign = 4;
+  header->bitsPerSample = 16;
+  memcpy(header->subchunk2Id, "data", 4);
+  header->subchunk2Size = waveDataSize;
 }
 
 /* Ring Buffer Settings */
-#define RB_SIZE (128 * 1024) // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
-volatile uint32_t rb_head = 0;  // Write index
-volatile uint32_t rb_tail = 0;  // Read index
-volatile uint32_t rb_count = 0; // Available bytes
-
-__attribute__((section(".axi_sram"))) uint8_t RB_Rec_Buffer[RB_SIZE];// From Mic
+#define RB_SIZE (128 * 1024)                                           // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
+__attribute__((section(".axi_sram"))) uint8_t RB_Rec_Buffer[RB_SIZE];  // From Mic
 __attribute__((section(".axi_sram"))) uint8_t RB_Play_Buffer[RB_SIZE]; // To Speaker
 /* Create a temporary buffer for SD writing to avoid reading 1 byte at a time */
-__attribute__((section(".axi_sram"))) uint8_t scratch_buf[4096];// Shared temp buffer
+__attribute__((section(".axi_sram"))) uint8_t scratch_buf[4096]; // Shared temp buffer
 __attribute__((section(".axi_sram"))) FATFS SDFatFs;
 __attribute__((section(".axi_sram"))) FIL File_Rec;
 __attribute__((section(".axi_sram"))) FIL File_Play;
 /* Global variable to track total bytes recorded */
 static uint32_t total_bytes_recorded = 0;
+RingBuffer_t RecRB = {.buffer = RB_Rec_Buffer, .size = RB_SIZE, .head = 0, .tail = 0, .count = 0};
+RingBuffer_t PlayRB = {.buffer = RB_Play_Buffer, .size = RB_SIZE, .head = 0, .tail = 0, .count = 0};
 
 #define RECORD_DURATION_SECONDS 15
 const uint32_t TARGET_BYTES = (SD_SAMPLE_RATE * 2 * 2 * RECORD_DURATION_SECONDS); // 48kHz * 16bit * Stereo * 5 seconds
@@ -114,9 +124,9 @@ const uint32_t TARGET_BYTES = (SD_SAMPLE_RATE * 2 * 2 * RECORD_DURATION_SECONDS)
 /* Audio recording to SD card variables */
 volatile uint8_t g_StartRecording = 0; /* Set to 1 to start recording */
 volatile uint8_t g_RecordingComplete = 0;
-volatile uint8_t g_SDReady = 0; /* Set to 1 when SD file is open and ready */
+volatile uint8_t g_SDReady = 0;       /* Set to 1 when SD file is open and ready */
 volatile uint8_t g_ButtonPressed = 0; /* Set to 1 by button ISR */
-static uint32_t g_FileIndex = 1; /* Increments per recording: REC_01, REC_02, ... */
+static uint32_t g_FileIndex = 1;      /* Increments per recording: REC_01, REC_02, ... */
 
 static uint32_t msg_count = 2;
 static uint32_t msg_size = sizeof(uint32_t);
@@ -153,7 +163,6 @@ static osThreadAttr_t sd_task_attr = {
 
 /* USER CODE BEGIN PV */
 
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -171,9 +180,11 @@ static void STATUS_Thread(void *argument);
 static void Audio_Loopback_Task(void *argument);
 static void MX_USART3_UART_Init(void);
 static void SD_Write_Task(void *argument);
-void RB_Write(uint8_t *data, uint32_t len);
-uint32_t RB_Read(uint8_t *buffer, uint32_t len);
-uint32_t RB_GetFreeSpace(void);
+static int SD_Open_Play(void);
+static int SD_Open_Rec(char *rec_filename, uint32_t FileIndex);
+void RB_Write(RingBuffer_t *rb, uint8_t *data, uint32_t len);
+uint32_t RB_Read(RingBuffer_t *rb, uint8_t *buffer, uint32_t len);
+uint32_t RB_GetFreeSpace(RingBuffer_t *rb);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -300,7 +311,6 @@ static void SystemClock_Config(void)
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
   HAL_StatusTypeDef ret = HAL_OK;
 
-
   /* The voltage scaling allows optimizing the power consumption when the device is
      clocked below the maximum system frequency, to update the voltage scaling value
      regarding system frequency refer to product datasheet.  */
@@ -354,11 +364,10 @@ static void SystemClock_Config(void)
     };
   }
 
-
-    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
-    {
-      Error_Handler();
-    }
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /**
@@ -435,413 +444,587 @@ static void Audio_Loopback_Task(void *argument)
 
   /* ---------- Main loop  ---------- */
   while (1)
+  {
+    uint32_t state;
+    osStatus_t status = osMessageQueueGet(SDQueueHandle, &state, NULL, osWaitForever);
+
+    if (status == osOK) // check if message was received
     {
-      uint32_t state;
-      osStatus_t status = osMessageQueueGet(SDQueueHandle, &state, NULL, osWaitForever);
-
-      if (status == osOK)//check if message was received
+      /* Define Pointers for readability */
+      int16_t *src; // source (ADC from codec)
+      int16_t *dst; // destiny (DAC from codec)
+      uint32_t bytes_to_process = (BUFFER_SIZE / 2) * sizeof(int16_t);
+      /* Assign Pointers based on State */
+      if (state == BUFFER_OFFSET_HALF)
       {
-        /* Define Pointers for readability */
-        int16_t *src; //source (ADC from codec)
-        int16_t *dst; //destiny (DAC from codec)
-        uint32_t bytes_to_process = (BUFFER_SIZE / 2) * sizeof(int16_t);
-        /* Assign Pointers based on State */
-        if (state == BUFFER_OFFSET_HALF)
-        {
-            /* First Half Ready (0 to Half) */
-            src = &RecordBuffer[0];
-            dst = &PlayBuffer[0];
-        }
-        else /* BUFFER_OFFSET_FULL */
-        {
-            /* Second Half Ready (Half to End) */
-            src = &RecordBuffer[BUFFER_SIZE / 2];
-            dst = &PlayBuffer[BUFFER_SIZE / 2];
-        }
-
-        if (g_Mode == MODE_PLAY)
-        {
-        	/* Pull data from Ring Buffer */
-		    uint32_t bytes_fetched = RB_Read((uint8_t*)dst, bytes_to_process);
-
-		    /* If buffer empty (Underrun or finished), play silence */
-			if (bytes_fetched < bytes_to_process)
-			{
-				memset(((uint8_t*)dst) + bytes_fetched, 0, bytes_to_process - bytes_fetched);
-			}
-			osSemaphoreRelease(SDRemaphoreHandle);
-        }
-        else if (g_Mode == MODE_PASSTHROUGH){
-			/* Audio Loopback (Copy Record -> Play) */
-			memcpy(dst, src, bytes_to_process);
-        }
-        else if (g_Mode == MODE_RECORD){
-			/* Output silence — don't route mic to headphone during recording */
-			memset(dst, 0, bytes_to_process);
-
-			/* SD Card Recording (Write to Ring Buffer) */
-			if (g_StartRecording && (total_bytes_recorded < TARGET_BYTES))
-			{
-				RB_Write((uint8_t *)src, bytes_to_process);//write to RAM ADC data
-
-				total_bytes_recorded += bytes_to_process;
-				osSemaphoreRelease(SDRemaphoreHandle);
-
-				/* Visual Heartbeat */
-				static int toggle_cnt = 0;
-				if (++toggle_cnt > 48) {
-					BSP_LED_Toggle(LED_OK);
-					toggle_cnt = 0;
-				}
-			}
-			else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
-			{
-				/* Recording Finished */
-				g_StartRecording = 0;
-				g_RecordingComplete = 1;
-				UART_Print("Audio Task: Target Size Reached!\r\n");
-				BSP_LED_Off(LED_OK);
-			}
-        }
-      }//osOK
-    }//end while(1)
-}
-
-static void SD_Write_Task(void *argument)
-{
-  char msg[64];
-  char filename[16];
-  UINT bytesWritten;
-  FRESULT fres;
-  uint32_t total_sd_bytes_written = 0;
-  WavHeader myWavHeader;
-
-  /* ---------- SD card setup ---------- */
-  osDelay(500); /* Let audio DMA stabilize */
-
-  if (BSP_SD_IsDetected(0) != SD_PRESENT)
-  {
-    UART_Print("No SD card - loopback only\r\n");
-    osThreadTerminate(osThreadGetId());
-  }
-
-  fres = f_mount(&SDFatFs, "", 1);
-  if (fres != FR_OK)
-  {
-    sprintf(msg, "f_mount failed: %d\r\n", fres);
-    UART_Print(msg);
-    osThreadTerminate(osThreadGetId());
-  }
-
-  /* --- Scan SD card for existing REC_XX.WAV files to resume numbering --- */
-  {
-    FILINFO fno;
-    uint32_t max_index = 0;
-    char probe[16];
-
-    for (uint32_t i = 1; i <= 99; i++)
-    {
-      sprintf(probe, "REC_%02lu.WAV", i);
-      if (f_stat(probe, &fno) == FR_OK)
-      {
-        max_index = i;
+        /* First Half Ready (0 to Half) */
+        src = &RecordBuffer[0];
+        dst = &PlayBuffer[0];
       }
-    }
-    g_FileIndex = max_index + 1;
-    sprintf(msg, "Next file index: REC_%02lu.WAV\r\n", g_FileIndex);
-    UART_Print(msg);
+      else /* BUFFER_OFFSET_FULL */
+      {
+        /* Second Half Ready (Half to End) */
+        src = &RecordBuffer[BUFFER_SIZE / 2];
+        dst = &PlayBuffer[BUFFER_SIZE / 2];
+      }
+
+      if (g_Mode == MODE_PLAY)
+      {
+        /* Pull data from Ring Buffer */
+        uint32_t bytes_fetched = RB_Read(&PlayRB, (uint8_t *)dst, bytes_to_process);
+
+        /* If buffer empty (Underrun or finished), play silence */
+        if (bytes_fetched < bytes_to_process)
+        {
+          memset(((uint8_t *)dst) + bytes_fetched, 0, bytes_to_process - bytes_fetched);
+        }
+        osSemaphoreRelease(SDRemaphoreHandle);
+      }
+      else if (g_Mode == MODE_PASSTHROUGH)
+      {
+        /* Audio Loopback (Copy Record -> Play) */
+        memcpy(dst, src, bytes_to_process);
+      }
+      else if (g_Mode == MODE_RECORD)
+      {
+        /* Output silence — don't route mic to headphone during recording */
+        memset(dst, 0, bytes_to_process);
+
+        /* SD Card Recording (Write to Ring Buffer) */
+        if (g_StartRecording && (total_bytes_recorded < TARGET_BYTES))
+        {
+          RB_Write(&RecRB, (uint8_t *)src, bytes_to_process); // write to RAM ADC data
+
+          total_bytes_recorded += bytes_to_process;
+          osSemaphoreRelease(SDRemaphoreHandle);
+
+          /* Visual Heartbeat */
+          static int toggle_cnt = 0;
+          if (++toggle_cnt > 48)
+          {
+            BSP_LED_Toggle(LED_OK);
+            toggle_cnt = 0;
+          }
+        }
+        else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
+        {
+          /* Recording Finished */
+          g_StartRecording = 0;
+          g_RecordingComplete = 1;
+          UART_Print("Audio Task: Target Size Reached!\r\n");
+          BSP_LED_Off(LED_OK);
+        }
+      }
+      else if (g_Mode == MODE_FULL_DUPLEX)
+      {
+        /*PLAYBACK PATH: RingBuffer -> DAC*/
+        /* Pull data from Ring Buffer */
+        uint32_t bytes_fetched = RB_Read(&PlayRB, (uint8_t *)dst, bytes_to_process);
+
+        /* Underrun protection: Fill with 0 if buffer empty */
+        if (bytes_fetched < bytes_to_process)
+        {
+          memset(((uint8_t *)dst) + bytes_fetched, 0, bytes_to_process - bytes_fetched);
+        }
+        /*RECORD PATH: ADC -> RingBuffer*/
+        if (g_StartRecording && (total_bytes_recorded < TARGET_BYTES))
+        {
+          RB_Write(&RecRB, (uint8_t *)src, bytes_to_process); // write to RAM ADC data
+          total_bytes_recorded += bytes_to_process;
+        }
+          else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
+          {
+            g_StartRecording = 0;
+          }
+          /* Signal SD Manag
+           * er to run */
+          osSemaphoreRelease(SDRemaphoreHandle);
+        }
+      } // osOK
+    } // end while(1)
   }
 
-  sprintf(msg, "SD mounted. Mode=%d. Press USER button.\r\n", g_Mode);
-  UART_Print(msg);
-
-  /* ========== Main loop: wait for button -> record -> repeat ========== */
-  while (1)
+  static void SD_Write_Task(void *argument)
   {
-    /* --- Idle: wait for button press --- */
-    BSP_LED_On(LED_OK); /* Solid LED = ready */
-    while (!g_ButtonPressed)
+    char msg[64];
+    char filename[16];
+    UINT bytesWritten;
+    FRESULT fres;
+    uint32_t total_sd_bytes_written = 0;
+    WavHeader myWavHeader;
+
+    /* ---------- SD card setup ---------- */
+    osDelay(500); /* Let audio DMA stabilize */
+
+    if (BSP_SD_IsDetected(0) != SD_PRESENT)
     {
-      osDelay(50);
+      UART_Print("No SD card - loopback only\r\n");
+      osThreadTerminate(osThreadGetId());
     }
-    g_ButtonPressed = 0;
 
-    /* ================= RECORD MODE ================= */
-    if (g_Mode == MODE_RECORD) {
-		/* --- Build filename: REC_01.WAV, REC_02.WAV, ... --- */
-		sprintf(filename, "REC_%02lu.WAV", g_FileIndex);
-		sprintf(msg, "Recording %s ...\r\n", filename);
-		UART_Print(msg);
-
-		/* --- Reset state for new recording --- */
-		total_sd_bytes_written = 0;
-		total_bytes_recorded = 0;
-		g_RecordingComplete = 0;
-		g_StartRecording = 0;
-		g_SDReady = 0;
-		rb_head = 0;
-		rb_tail = 0;
-		rb_count = 0;
-
-		/* --- Open file and write placeholder WAV header --- */
-		fres = f_open(&File_Rec, filename, FA_CREATE_ALWAYS | FA_WRITE);
-		if (fres != FR_OK)
-		{
-		  sprintf(msg, "f_open failed: %d\r\n", fres);
-		  UART_Print(msg);
-		  continue; /* Go back to waiting for button */
-		}
-
-		memset(scratch_buf, 0, sizeof(WavHeader));
-		fres = f_write(&File_Rec, scratch_buf, sizeof(WavHeader), &bytesWritten);
-		g_SDReady = 1;        /* Signal audio task: OK to start filling ring buffer */
-		g_StartRecording = 1; /* Start recording immediately */
-
-		BSP_LED_Off(LED_OK);  /* LED off during recording (heartbeat will toggle it) */
-
-		/* --- Recording loop: drain ring buffer to SD --- */
-		while (1)
-		{
-		  osSemaphoreAcquire(SDRemaphoreHandle, 100);
-
-		  if (rb_count >= sizeof(scratch_buf) && total_sd_bytes_written < TARGET_BYTES)
-		  {
-			uint32_t chunk = sizeof(scratch_buf);
-			if (total_sd_bytes_written + chunk > TARGET_BYTES)
-			  chunk = TARGET_BYTES - total_sd_bytes_written;
-			RB_Read(scratch_buf, chunk);
-			fres = f_write(&File_Rec, scratch_buf, chunk, &bytesWritten);
-			total_sd_bytes_written += bytesWritten;
-		  }
-		  else if (g_RecordingComplete == 1 && rb_count > 0 && total_sd_bytes_written < TARGET_BYTES)
-		  {
-			uint32_t remaining = rb_count;
-			if (total_sd_bytes_written + remaining > TARGET_BYTES)
-			  remaining = TARGET_BYTES - total_sd_bytes_written;
-			RB_Read(scratch_buf, remaining);
-			fres = f_write(&File_Rec, scratch_buf, remaining, &bytesWritten);
-			total_sd_bytes_written += bytesWritten;
-			rb_count = 0;
-		  }
-
-		  /* Check if recording is done */
-		  if (g_RecordingComplete == 1 && (rb_count == 0 || total_sd_bytes_written >= TARGET_BYTES))
-			break;
-		}
-
-		/* --- Finalize WAV header and close file --- */
-		UART_Print("Finalizing WAV Header...\r\n");
-		f_lseek(&File_Rec, 0);
-		Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
-		memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
-		f_write(&File_Rec, scratch_buf, sizeof(WavHeader), &bytesWritten);
-		f_close(&File_Rec);
-
-		sprintf(msg, "Saved %s (%lu bytes)\r\n", filename, total_sd_bytes_written);
-		UART_Print(msg);
-		BSP_LED_On(LED_OK);
-
-		g_FileIndex++;
-		g_SDReady = 0;
-    }/* ================= PLAYBACK MODE ================= */
-    else if (g_Mode == MODE_PLAY) {
-		UINT bytesRead;
-		char play_filename[16];
-
-		sprintf(play_filename, "TEST.WAV");
-
-		fres = f_open(&File_Play, play_filename, FA_READ);
-		if (fres != FR_OK) {
-			sprintf(msg, "Cannot open %s: %d\r\n", play_filename, fres);
-			UART_Print(msg);
-			continue; /* Back to waiting for button */
-		}
-
-		/* Skip WAV header (44 bytes) */
-		f_lseek(&File_Play, 44);
-
-		/* Reset Ring Buffer */
-		rb_head = 0;
-		rb_tail = 0;
-		rb_count = 0;
-
-		sprintf(msg, "Playing %s ...\r\n", play_filename);
-		UART_Print(msg);
-		BSP_LED_Off(LED_OK);
-
-		/* --- Playback loop: feed ring buffer from SD --- */
-		while (1) {
-			osSemaphoreAcquire(SDRemaphoreHandle, 100);
-
-			if (RB_GetFreeSpace() >= sizeof(scratch_buf)) {
-				fres = f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
-
-				if (fres == FR_OK && bytesRead > 0) {
-					RB_Write(scratch_buf, bytesRead);
-
-					/* Visual Heartbeat */
-					static int play_toggle = 0;
-					if (++play_toggle > 48) {
-						BSP_LED_Toggle(LED_OK);
-						play_toggle = 0;
-					}
-				}
-
-				if (bytesRead < sizeof(scratch_buf)) {
-					/* End of file — let audio task consume what's left */
-					uint32_t drain_bytes = (BUFFER_SIZE / 2) * sizeof(int16_t);
-					UART_Print("End of file reached, draining...\r\n");
-					while (rb_count >= drain_bytes) {
-						osDelay(10);
-					}
-					/* Remaining bytes < one DMA chunk, audio task will zero-pad */
-					osDelay(100); /* Let last chunk play out */
-					break;
-				}
-			}
-		}
-
-		f_close(&File_Play);
-		UART_Print("Playback complete.\r\n");
-		BSP_LED_On(LED_OK);
+    fres = f_mount(&SDFatFs, "", 1);
+    if (fres != FR_OK)
+    {
+      sprintf(msg, "f_mount failed: %d\r\n", fres);
+      UART_Print(msg);
+      osThreadTerminate(osThreadGetId());
     }
-    /* Small delay to debounce before accepting next button press */
-    osDelay(500);
+
+    /* --- Scan SD card for existing REC_XX.WAV files to resume numbering --- */
+    {
+      FILINFO fno;
+      uint32_t max_index = 0;
+      char probe[16];
+
+      for (uint32_t i = 1; i <= 99; i++)
+      {
+        sprintf(probe, "REC_%02lu.WAV", i);
+        if (f_stat(probe, &fno) == FR_OK)
+        {
+          max_index = i;
+        }
+      }
+      g_FileIndex = max_index + 1;
+      sprintf(msg, "Next file index: REC_%02lu.WAV\r\n", g_FileIndex);
+      UART_Print(msg);
+    }
+
+    sprintf(msg, "SD mounted. Mode=%d. Press USER button.\r\n", g_Mode);
+    UART_Print(msg);
+
+    /* ========== Main loop: wait for button -> record -> repeat ========== */
+    while (1)
+    {
+      /* --- Idle: wait for button press --- */
+      BSP_LED_On(LED_OK); /* Solid LED = ready */
+      while (!g_ButtonPressed)
+      {
+        osDelay(50);
+      }
+      g_ButtonPressed = 0;
+
+      /* ================= RECORD MODE ================= */
+      if (g_Mode == MODE_RECORD)
+      {
+        total_sd_bytes_written = 0;
+        if (SD_Open_Rec(filename, g_FileIndex) != 0)
+        {
+          continue;
+        }
+        /* --- Recording loop: drain ring buffer to SD --- */
+        while (1)
+        {
+          osSemaphoreAcquire(SDRemaphoreHandle, 100);
+
+          if (RecRB.count >= sizeof(scratch_buf) && total_sd_bytes_written < TARGET_BYTES)
+          {
+            uint32_t chunk = sizeof(scratch_buf);
+            if (total_sd_bytes_written + chunk > TARGET_BYTES)
+              chunk = TARGET_BYTES - total_sd_bytes_written;
+            RB_Read(&RecRB, scratch_buf, chunk);
+            f_write(&File_Rec, scratch_buf, chunk, &bytesWritten);
+            total_sd_bytes_written += bytesWritten;
+          }
+          else if (g_RecordingComplete == 1 && RecRB.count > 0 && total_sd_bytes_written < TARGET_BYTES)
+          {
+            uint32_t remaining = RecRB.count;
+            if (total_sd_bytes_written + remaining > TARGET_BYTES)
+              remaining = TARGET_BYTES - total_sd_bytes_written;
+            RB_Read(&RecRB, scratch_buf, remaining);
+            f_write(&File_Rec, scratch_buf, remaining, &bytesWritten);
+            total_sd_bytes_written += bytesWritten;
+            RecRB.count = 0;
+          }
+
+          /* Check if recording is done */
+          if (g_RecordingComplete == 1 && (RecRB.count == 0 || total_sd_bytes_written >= TARGET_BYTES))
+            break;
+        }
+
+        /* --- Finalize WAV header and close file --- */
+        UART_Print("Finalizing WAV Header...\r\n");
+        f_lseek(&File_Rec, 0);
+        Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
+        memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
+        f_write(&File_Rec, scratch_buf, sizeof(WavHeader), &bytesWritten);
+        f_close(&File_Rec);
+
+        sprintf(msg, "Saved %s (%lu bytes)\r\n", filename, total_sd_bytes_written);
+        UART_Print(msg);
+        BSP_LED_On(LED_OK);
+
+        g_FileIndex++;
+        g_SDReady = 0;
+      }
+      /* ================= PLAYBACK MODE ================= */
+      else if (g_Mode == MODE_PLAY)
+      {
+        UINT bytesRead;
+        if (SD_Open_Play() != 0)
+        {
+          continue;
+        }
+
+        /* --- Playback loop: feed ring buffer from SD --- */
+        while (1)
+        {
+          osSemaphoreAcquire(SDRemaphoreHandle, 100);
+
+          if (RB_GetFreeSpace(&PlayRB) >= sizeof(scratch_buf))
+          {
+            fres = f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
+
+            if (fres == FR_OK && bytesRead > 0)
+            {
+              RB_Write(&PlayRB, scratch_buf, bytesRead);
+
+              /* Visual Heartbeat */
+              static int play_toggle = 0;
+              if (++play_toggle > 48)
+              {
+                BSP_LED_Toggle(LED_OK);
+                play_toggle = 0;
+              }
+            }
+
+            if (bytesRead < sizeof(scratch_buf))
+            {
+              /* End of file — let audio task consume what's left */
+              uint32_t drain_bytes = (BUFFER_SIZE / 2) * sizeof(int16_t);
+              UART_Print("End of file reached, draining...\r\n");
+              while (PlayRB.count >= drain_bytes)
+              {
+                osDelay(10);
+              }
+              /* Remaining bytes < one DMA chunk, audio task will zero-pad */
+              osDelay(100); /* Let last chunk play out */
+              break;
+            }
+          }
+        }
+
+        f_close(&File_Play);
+        UART_Print("Playback complete.\r\n");
+        BSP_LED_On(LED_OK);
+      } /* ================= FULL DUPLEX MODE ================= */
+      else if (g_Mode == MODE_FULL_DUPLEX)
+      {
+        uint8_t play_file_is_open = 0;
+        UINT bytesRead;
+
+        /*Open play file*/
+        if (SD_Open_Play() == 0)
+        {
+          play_file_is_open = 1;
+
+          /* Pre-fill buffer to avoid start glitches */
+          while ((PlayRB.size - PlayRB.count) >= sizeof(scratch_buf))
+          {
+            f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
+            if (bytesRead == 0)
+              break;
+            RB_Write(&PlayRB, scratch_buf, bytesRead);
+          }
+        }
+        else
+        {
+          play_file_is_open = 0; // Failed to open
+        }
+
+        /*Open record file*/
+        total_sd_bytes_written = 0;
+        if (SD_Open_Rec(filename, g_FileIndex) != 0)
+          continue;
+
+        UART_Print("Starting Full Duplex \r\n");
+        while (1)
+        {
+          osSemaphoreAcquire(SDRemaphoreHandle, 10);
+
+          /*Start filling the playback*/
+          if (play_file_is_open == 1)
+          {
+            if (RB_GetFreeSpace(&PlayRB) >= sizeof(scratch_buf))
+            {
+              /*Read from SD File */
+              fres = f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
+
+              if (fres == FR_OK && bytesRead > 0)
+              {
+                /*Push to Play Ring Buffer */
+                RB_Write(&PlayRB, scratch_buf, bytesRead);
+              }
+              if (fres != FR_OK || bytesRead < sizeof(scratch_buf))
+              {
+
+                UART_Print("End of file play reached\r\n");
+                f_close(&File_Play);
+                play_file_is_open = 0; /* Stop trying to read */
+              }
+            }
+          }
+          /*Recording*/
+          if (RecRB.count >= sizeof(scratch_buf))
+          {
+            uint32_t chunk = sizeof(scratch_buf);
+
+            /* Cap chunk size if we the target limit is near*/
+            if (total_sd_bytes_written + chunk > TARGET_BYTES)
+              chunk = TARGET_BYTES - total_sd_bytes_written;
+
+            RB_Read(&RecRB, scratch_buf, chunk);
+            f_write(&File_Rec, scratch_buf, chunk, &bytesWritten);
+            total_sd_bytes_written += bytesWritten;
+          }
+
+          if (total_sd_bytes_written >= TARGET_BYTES)
+          {
+            UART_Print("Recodring time reached. Stopping.\r\n");
+            break;
+          }
+        }
+        /* --- Finalize WAV header and close file --- */
+
+        f_lseek(&File_Rec, 0);
+        Create_WAV_Header(&myWavHeader, total_sd_bytes_written);
+        memcpy(scratch_buf, &myWavHeader, sizeof(WavHeader));
+        f_write(&File_Rec, scratch_buf, sizeof(WavHeader), &bytesWritten);
+        f_close(&File_Rec);
+
+        /* Close Play File (If it wasn't closed yet) */
+        if (play_file_is_open == 1)
+        {
+          f_close(&File_Play);
+          play_file_is_open = 0;
+        }
+
+        UART_Print(msg);
+        BSP_LED_On(LED_OK);
+
+        g_FileIndex++;
+        g_SDReady = 0;
+      }
+      /* Small delay to debounce before accepting next button press */
+      osDelay(500);
+    }
   }
-}
 
-/* Write data to Ring Buffer (Called by Audio Loopback Task) */
-void RB_Write(uint8_t *data, uint32_t len)
-{
-  if ((rb_count + len) > RB_SIZE)
+  static int SD_Open_Play(void)
   {
-    //UART_Print("Buffer Overflow!\r\n"); // SD card is too slow
-	BSP_LED_On(LED_ERROR);
-    return;
+    char msg[48];
+    FRESULT fres;
+
+    fres = f_open(&File_Play, "TEST.WAV", FA_READ);
+    if (fres != FR_OK)
+    {
+      sprintf(msg, "Cannot open TEST.WAV: %d\r\n", fres);
+      UART_Print(msg);
+      return -1;
+    }
+
+    /* Skip WAV header (44 bytes) */
+    f_lseek(&File_Play, 44);
+
+    /* Reset Ring Buffer */
+    PlayRB.count = 0;
+    PlayRB.head = 0;
+    PlayRB.tail = 0;
+
+    UART_Print("Playing TEST.WAV ...\r\n");
+    BSP_LED_Off(LED_OK);
+    return 0;
   }
-  /* Calculate contiguous bytes until end of buffer */
-    uint32_t bytes_to_end = RB_SIZE - rb_head;
+
+  static int SD_Open_Rec(char *rec_filename, uint32_t FileIndex)
+  {
+    char msg[48];
+    FRESULT fres;
+    UINT bytesWritten;
+
+    /* --- Build filename: REC_01.WAV, REC_02.WAV, ... --- */
+    sprintf(rec_filename, "REC_%02lu.WAV", FileIndex);
+    sprintf(msg, "Recording %s ...\r\n", rec_filename);
+    UART_Print(msg);
+
+    /* --- Reset state for new recording --- */
+    total_bytes_recorded = 0;
+    g_RecordingComplete = 0;
+    g_StartRecording = 0;
+    g_SDReady = 0;
+    RecRB.count = 0;
+    RecRB.head = 0;
+    RecRB.tail = 0;
+
+    fres = f_open(&File_Rec, rec_filename, FA_CREATE_ALWAYS | FA_WRITE);
+    if (fres != FR_OK)
+    {
+      g_StartRecording = 0; /* Abort capture on failure */
+      sprintf(msg, "f_open failed: %d\r\n", fres);
+      UART_Print(msg);
+      return -1;
+    }
+    else
+    {
+      g_StartRecording = 1;
+    }
+
+    memset(scratch_buf, 0, sizeof(WavHeader));
+    fres = f_write(&File_Rec, scratch_buf, sizeof(WavHeader), &bytesWritten);
+    g_SDReady = 1;
+
+    BSP_LED_Off(LED_OK); /* LED off during recording (heartbeat will toggle it) */
+    return 0;
+  }
+
+  /* Write data to Ring Buffer (Called by Audio Loopback Task) */
+  void RB_Write(RingBuffer_t * rb, uint8_t *data, uint32_t len)
+  {
+    uint32_t error_count = 0;
+    if ((rb->count + len) > rb->size)
+    {
+      // UART_Print("Buffer Overflow!\r\n"); // SD card is too slow
+      error_count++;
+      BSP_LED_Toggle(LED_ERROR);
+      return;
+    }
+    /* Calculate contiguous bytes until end of buffer */
+    uint32_t bytes_to_end = rb->size - rb->head;
 
     if (len <= bytes_to_end)
     {
       /* Case A: Data fits in the remaining space */
-      memcpy(&RB_Rec_Buffer[rb_head], data, len);
-      rb_head += len;
+      memcpy(&rb->buffer[rb->head], data, len);
+      rb->head += len;
     }
     else
     {
       /* Case B: Data wraps around */
-      memcpy(&RB_Rec_Buffer[rb_head], data, bytes_to_end);
-      memcpy(&RB_Rec_Buffer[0], &data[bytes_to_end], len - bytes_to_end);
-      rb_head = len - bytes_to_end;
+      memcpy(&rb->buffer[rb->head], data, bytes_to_end);
+      memcpy(&rb->buffer[0], &data[bytes_to_end], len - bytes_to_end);
+      rb->head = len - bytes_to_end;
     }
 
     /* Handle wrap-around of head index if it exactly matches size */
-    if (rb_head == RB_SIZE) rb_head = 0;
+    if (rb->head == rb->size)
+      rb->head = 0;
 
     /*Atomic Update */
     __disable_irq();
-    rb_count += len;
+    rb->count += len;
     __enable_irq();
-}
-
-/* Read data from Ring Buffer (Called by SD Task) */
-uint32_t RB_Read(uint8_t *buffer, uint32_t len)
-{
-  if (rb_count < len)
-    return 0; // Not enough data yet
-
-  for (uint32_t i = 0; i < len; i++)
-  {
-    buffer[i] = RB_Rec_Buffer[rb_tail];
-    rb_tail = (rb_tail + 1) % RB_SIZE;
   }
 
-  __disable_irq();
-  rb_count -= len;
-  __enable_irq();
-
-  return len;
-}
-
-uint32_t RB_GetFreeSpace(void) {
-    return RB_SIZE - rb_count;
-}
-/* USER CODE BEGIN 4 */
-void BSP_PB_Callback(Button_TypeDef Button)
-{
-  if (Button == BUTTON_USER)
+  /* Read data from Ring Buffer (Called by SD Task) */
+  uint32_t RB_Read(RingBuffer_t * rb, uint8_t *buffer, uint32_t len)
   {
-    g_ButtonPressed = 1;
-  }
-}
-/* USER CODE END 4 */
+    if (rb->count < len)
+      return 0; // Not enough data yet
 
-/**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  BSP_LED_Off(LED_OK);
-  BSP_LED_On(LED_ERROR);
-  while (1)
+    uint32_t bytes_to_end = rb->size - rb->tail;
+
+    if (len <= bytes_to_end)
+    {
+      /* Case A: Contiguous read */
+      memcpy(buffer, &rb->buffer[rb->tail], len);
+      rb->tail += len;
+    }
+    else
+    {
+      /* Case B: Wrap around read */
+      memcpy(buffer, &rb->buffer[rb->tail], bytes_to_end);
+      memcpy(&buffer[bytes_to_end], &rb->buffer[0], len - bytes_to_end);
+      rb->tail = len - bytes_to_end;
+    }
+
+    if (rb->tail == rb->size)
+      rb->tail = 0;
+
+    __disable_irq();
+    rb->count -= len;
+    __enable_irq();
+
+    return len;
+  }
+
+  uint32_t RB_GetFreeSpace(RingBuffer_t * rb)
   {
+    return rb->size - rb->count;
   }
-  /* USER CODE END Error_Handler_Debug */
-}
+  /* USER CODE BEGIN 4 */
+  void BSP_PB_Callback(Button_TypeDef Button)
+  {
+    if (Button == BUTTON_USER)
+    {
+      g_ButtonPressed = 1;
+    }
+  }
+  /* USER CODE END 4 */
 
-/**
- * @brief  Configure the MPU attributes
- * @param  None
- * @retval None
- */
-static void MPU_Config(void)
-{
-  MPU_Region_InitTypeDef MPU_InitStruct;
+  /**
+   * @brief  This function is executed in case of error occurrence.
+   * @retval None
+   */
+  void Error_Handler(void)
+  {
+    /* USER CODE BEGIN Error_Handler_Debug */
+    /* User can add his own implementation to report the HAL error return state */
+    BSP_LED_Off(LED_OK);
+    BSP_LED_On(LED_ERROR);
+    while (1)
+    {
+    }
+    /* USER CODE END Error_Handler_Debug */
+  }
 
-  /* Disable the MPU */
-  HAL_MPU_Disable();
+  /**
+   * @brief  Configure the MPU attributes
+   * @param  None
+   * @retval None
+   */
+  static void MPU_Config(void)
+  {
+    MPU_Region_InitTypeDef MPU_InitStruct;
 
-  /* ============================================================
-   REGION 0:
-  ============================================================ */
-  /* Configure the MPU as Strongly ordered for not defined regions */
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-  MPU_InitStruct.BaseAddress = 0x00;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
-  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
-  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.SubRegionDisable = 0x87;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+    /* Disable the MPU */
+    HAL_MPU_Disable();
 
-  /* ============================================================
-       REGION 1: D3 SRAM for AUDIO (Critical for DMA)
-       ============================================================ */
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-  MPU_InitStruct.Number = MPU_REGION_NUMBER1; // <--- Region 1 (Must be different)
-  MPU_InitStruct.BaseAddress = 0x38000000;    // D3 SRAM Address
-  MPU_InitStruct.Size = MPU_REGION_SIZE_64KB;
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE; // Non-cacheable for DMA
-  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.SubRegionDisable = 0x00;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+    /* ============================================================
+     REGION 0:
+    ============================================================ */
+    /* Configure the MPU as Strongly ordered for not defined regions */
+    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+    MPU_InitStruct.BaseAddress = 0x00;
+    MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+    MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+    MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+    MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+    MPU_InitStruct.SubRegionDisable = 0x87;
+    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+    /* ============================================================
+         REGION 1: D3 SRAM for AUDIO (Critical for DMA)
+         ============================================================ */
+    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+    MPU_InitStruct.Number = MPU_REGION_NUMBER1; // <--- Region 1 (Must be different)
+    MPU_InitStruct.BaseAddress = 0x38000000;    // D3 SRAM Address
+    MPU_InitStruct.Size = MPU_REGION_SIZE_64KB;
+    MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+    MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE; // Non-cacheable for DMA
+    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+    MPU_InitStruct.SubRegionDisable = 0x00;
+    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
 
-  /* ============================================================
-   REGION 2: AXI SRAM (0x24000000) for Audio Buffers
-   ============================================================ */
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+    /* ============================================================
+     REGION 2: AXI SRAM (0x24000000) for Audio Buffers
+     ============================================================ */
     MPU_InitStruct.Enable = MPU_REGION_ENABLE;
     MPU_InitStruct.Number = MPU_REGION_NUMBER2;
 
@@ -861,130 +1044,130 @@ static void MPU_Config(void)
     MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
 
     HAL_MPU_ConfigRegion(&MPU_InitStruct);
-  /* Enable the MPU */
-  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
-}
-
-static void MX_USART3_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART3_Init 0 */
-
-  /* USER CODE END USART3_Init 0 */
-
-  /* USER CODE BEGIN USART3_Init 1 */
-
-  /* USER CODE END USART3_Init 1 */
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
+    /* Enable the MPU */
+    HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
   }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART3_Init 2 */
 
-  /* USER CODE END USART3_Init 2 */
-}
-
-void HAL_UART_MspInit(UART_HandleTypeDef *huart)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
-
-  if (huart->Instance == USART3)
+  static void MX_USART3_UART_Init(void)
   {
-    /* Enable HSI oscillator for USART3 clock */
-    __HAL_RCC_HSI_ENABLE();
-    while (__HAL_RCC_GET_FLAG(RCC_FLAG_HSIRDY) == 0)
-    {
-    }
 
-    /* Configure USART3 clock source as HSI (64 MHz) */
-    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART3;
-    PeriphClkInitStruct.Usart234578ClockSelection = RCC_USART234578CLKSOURCE_HSI;
-    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+    /* USER CODE BEGIN USART3_Init 0 */
+
+    /* USER CODE END USART3_Init 0 */
+
+    /* USER CODE BEGIN USART3_Init 1 */
+
+    /* USER CODE END USART3_Init 1 */
+    huart3.Instance = USART3;
+    huart3.Init.BaudRate = 115200;
+    huart3.Init.WordLength = UART_WORDLENGTH_8B;
+    huart3.Init.StopBits = UART_STOPBITS_1;
+    huart3.Init.Parity = UART_PARITY_NONE;
+    huart3.Init.Mode = UART_MODE_TX_RX;
+    huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+    huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+    huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+    huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+    if (HAL_UART_Init(&huart3) != HAL_OK)
     {
       Error_Handler();
     }
+    if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    if (HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    /* USER CODE BEGIN USART3_Init 2 */
 
-    /* Enable USART3 clock */
-    __HAL_RCC_USART3_CLK_ENABLE();
-
-    /* Enable GPIOD clock */
-    __HAL_RCC_GPIOD_CLK_ENABLE();
-
-    /* USART3 GPIO Configuration
-       PD8 ------> USART3_TX
-       PD9 ------> USART3_RX
-    */
-
-    GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
-    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    /* USER CODE END USART3_Init 2 */
   }
-}
 
-/**
- * @brief  Retargets the C library printf function to the USART.
- * @param  None
- * @retval None
- */
-PUTCHAR_PROTOTYPE
-{
-  /* Place your implementation of fputc here */
-  /* e.g. write a character to the USART1 and Loop until the end of transmission */
-  HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
-
-  return ch;
-}
-
-/* Simple UART print function */
-void UART_Print(const char *str)
-{
-  HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
-}
-#ifdef USE_FULL_ASSERT
-/**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-
-  /* Infinite loop */
-  while (1)
+  void HAL_UART_MspInit(UART_HandleTypeDef * huart)
   {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+    if (huart->Instance == USART3)
+    {
+      /* Enable HSI oscillator for USART3 clock */
+      __HAL_RCC_HSI_ENABLE();
+      while (__HAL_RCC_GET_FLAG(RCC_FLAG_HSIRDY) == 0)
+      {
+      }
+
+      /* Configure USART3 clock source as HSI (64 MHz) */
+      PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART3;
+      PeriphClkInitStruct.Usart234578ClockSelection = RCC_USART234578CLKSOURCE_HSI;
+      if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+      {
+        Error_Handler();
+      }
+
+      /* Enable USART3 clock */
+      __HAL_RCC_USART3_CLK_ENABLE();
+
+      /* Enable GPIOD clock */
+      __HAL_RCC_GPIOD_CLK_ENABLE();
+
+      /* USART3 GPIO Configuration
+         PD8 ------> USART3_TX
+         PD9 ------> USART3_RX
+      */
+
+      GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
+      GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+      GPIO_InitStruct.Pull = GPIO_NOPULL;
+      GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+      GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+      HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    }
   }
-  /* USER CODE END 6 */
-}
+
+  /**
+   * @brief  Retargets the C library printf function to the USART.
+   * @param  None
+   * @retval None
+   */
+  PUTCHAR_PROTOTYPE
+  {
+    /* Place your implementation of fputc here */
+    /* e.g. write a character to the USART1 and Loop until the end of transmission */
+    HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
+
+    return ch;
+  }
+
+  /* Simple UART print function */
+  void UART_Print(const char *str)
+  {
+    HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
+  }
+#ifdef USE_FULL_ASSERT
+  /**
+   * @brief  Reports the name of the source file and the source line number
+   *         where the assert_param error has occurred.
+   * @param  file: pointer to the source file name
+   * @param  line: assert_param error line source number
+   * @retval None
+   */
+  void assert_failed(uint8_t *file, uint32_t line)
+  {
+    /* USER CODE BEGIN 6 */
+    /* User can add his own implementation to report the file name and line number,
+       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+
+    /* Infinite loop */
+    while (1)
+    {
+    }
+    /* USER CODE END 6 */
+  }
 #endif /* USE_FULL_ASSERT */
