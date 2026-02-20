@@ -65,9 +65,11 @@ typedef struct
   volatile uint32_t tail;  // Read index
   volatile uint32_t count; // Available bytes
 } RingBuffer_t;
+
 /* ===== SET THIS BEFORE FLASHING TO SELECT MODE ===== */
 volatile uint8_t g_Mode = MODE_FULL_DUPLEX; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
-
+#define RECORD_DURATION_SECONDS 15
+TCHAR* audio_play = "ESS.WAV";
 /* WAV Header Structure */
 typedef struct
 {
@@ -118,7 +120,6 @@ static uint32_t total_bytes_recorded = 0;
 RingBuffer_t RecRB = {.buffer = RB_Rec_Buffer, .size = RB_SIZE, .head = 0, .tail = 0, .count = 0};
 RingBuffer_t PlayRB = {.buffer = RB_Play_Buffer, .size = RB_SIZE, .head = 0, .tail = 0, .count = 0};
 
-#define RECORD_DURATION_SECONDS 15
 const uint32_t TARGET_BYTES = (SD_SAMPLE_RATE * 2 * 2 * RECORD_DURATION_SECONDS); // 48kHz * 16bit * Stereo * 5 seconds
 
 /* Audio recording to SD card variables */
@@ -814,7 +815,7 @@ static void Audio_Loopback_Task(void *argument)
     char msg[48];
     FRESULT fres;
 
-    fres = f_open(&File_Play, "TEST.WAV", FA_READ);
+    fres = f_open(&File_Play, audio_play, FA_READ);
     if (fres != FR_OK)
     {
       sprintf(msg, "Cannot open TEST.WAV: %d\r\n", fres);
