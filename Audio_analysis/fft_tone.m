@@ -1,5 +1,5 @@
 % MATLAB Script: 1 kHz Sine Wave THD & Spectrum Analysis
-filename = 'IN_OSC_1K.WAV'; % Update with your actual filename
+filename = 'IN_OSC_1K.WAV'; % Update with filename
 %IN_1K_LINEOUT1
 %IN_OSC_1K
 %IN_TEENSY_1K

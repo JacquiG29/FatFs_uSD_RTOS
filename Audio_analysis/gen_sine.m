@@ -75,39 +75,5 @@ function generate_sweep(T, amplitude, f1, f2, fs, bit_depth, filename)
     fprintf('  Bit depth  : %d bit\n', bit_depth);
     fprintf('  Channels   : 2 (stereo, identical L/R)\n');
     fprintf('  Amplitude  : %.3f (%.2f dBFS)\n', amplitude, 20*log10(amplitude));
-    fprintf('  Peak level : %.4f\n', max(abs(sweep_mono)));
-
-    %% Plot verification using mono signal
-    figure('Name', 'Exponential Sine Sweep', 'NumberTitle', 'off');
-
-    % Time domain (first 100 ms)
-    subplot(3,1,1);
-    t_ms = t * 1000;
-    plot(t_ms, sweep_mono, 'b', 'LineWidth', 0.5);
-    xlabel('Time [ms]'); ylabel('Amplitude');
-    title(sprintf('Sweep: %.0f Hz \\rightarrow %.0f Hz, %.1f s, Amp=%.2f', ...
-        f1, f2, T, amplitude));
-    xlim([0 min(100, T*1000)]);
-    grid on;
-
-    % Spectrogram
-    subplot(3,1,2);
-    window_len = round(fs * 0.05);
-    noverlap   = round(window_len * 0.75);
-    nfft       = 2^nextpow2(window_len);
-    spectrogram(sweep_mono, hann(window_len), noverlap, nfft, fs, 'yaxis');
-    title('Spectrogram');
-    ylim([0 min(f2/1000 * 1.1, fs/2000)]);
-    colormap('jet');
-
-    % Instantaneous frequency (theoretical)
-    subplot(3,1,3);
-    f_inst = f1 * (f2/f1).^(t/T);
-    plot(t, f_inst / 1000, 'r', 'LineWidth', 1.5);
-    xlabel('Time [s]'); ylabel('Frequency [kHz]');
-    title('Instantaneous Frequency (theoretical)');
-    set(gca, 'YScale', 'log');
-    grid on;
-
-    sgtitle('Exponential Sine Sweep - Verification');
+    fprintf('  Peak level : %.4f\n', max(abs(sweep_mono)));    
 end

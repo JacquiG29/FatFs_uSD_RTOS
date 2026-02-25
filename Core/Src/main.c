@@ -36,7 +36,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-char version[] = "Version 1.0.0";
+char version[] = "Version 1.0.1";
 int32_t ProcessStatus = 0;
 UART_HandleTypeDef huart3;
 
@@ -67,9 +67,15 @@ typedef struct
 } RingBuffer_t;
 
 /* ===== SET THIS BEFORE FLASHING TO SELECT MODE ===== */
-volatile uint8_t g_Mode = MODE_FULL_DUPLEX; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
+volatile uint8_t g_Mode = MODE_PLAY; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
 #define RECORD_DURATION_SECONDS 15
-TCHAR* audio_play = "ESS.WAV";
+const TCHAR* audio_play = "ESS.WAV";
+/* WAV FILES NAMES:
+ * ESS
+ * SIN_1KL
+ * SIN_1KR
+ * SINE_1K
+ * */
 /* WAV Header Structure */
 typedef struct
 {
@@ -107,11 +113,12 @@ void Create_WAV_Header(WavHeader *header, uint32_t waveDataSize)
 }
 
 /* Ring Buffer Settings */
-#define RB_SIZE (128 * 1024)                                           // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
+#define RB_SIZE (128 * 1024)  // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
+#define SD_CHUNK_SIZE (32 * 1024)  // 4KB
 __attribute__((section(".axi_sram"))) uint8_t RB_Rec_Buffer[RB_SIZE];  // From Mic
 __attribute__((section(".axi_sram"))) uint8_t RB_Play_Buffer[RB_SIZE]; // To Speaker
 /* Create a temporary buffer for SD writing to avoid reading 1 byte at a time */
-__attribute__((section(".axi_sram"))) uint8_t scratch_buf[4096]; // Shared temp buffer
+__attribute__((section(".axi_sram"))) uint8_t scratch_buf[SD_CHUNK_SIZE]; // Shared temp buffer
 __attribute__((section(".axi_sram"))) FATFS SDFatFs;
 __attribute__((section(".axi_sram"))) FIL File_Rec;
 __attribute__((section(".axi_sram"))) FIL File_Play;
@@ -533,10 +540,11 @@ static void Audio_Loopback_Task(void *argument)
           RB_Write(&RecRB, (uint8_t *)src, bytes_to_process); // write to RAM ADC data
           total_bytes_recorded += bytes_to_process;
         }
-          else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
-          {
+        else if (g_StartRecording && (total_bytes_recorded >= TARGET_BYTES))
+        {
             g_StartRecording = 0;
-          }
+            g_RecordingComplete = 1;
+        }
           /* Signal SD Manag
            * er to run */
           osSemaphoreRelease(SDRemaphoreHandle);
@@ -617,9 +625,9 @@ static void Audio_Loopback_Task(void *argument)
         {
           osSemaphoreAcquire(SDRemaphoreHandle, 100);
 
-          if (RecRB.count >= sizeof(scratch_buf) && total_sd_bytes_written < TARGET_BYTES)
+          if (RecRB.count >= SD_CHUNK_SIZE && total_sd_bytes_written < TARGET_BYTES)
           {
-            uint32_t chunk = sizeof(scratch_buf);
+            uint32_t chunk = SD_CHUNK_SIZE;
             if (total_sd_bytes_written + chunk > TARGET_BYTES)
               chunk = TARGET_BYTES - total_sd_bytes_written;
             RB_Read(&RecRB, scratch_buf, chunk);
@@ -671,9 +679,9 @@ static void Audio_Loopback_Task(void *argument)
         {
           osSemaphoreAcquire(SDRemaphoreHandle, 100);
 
-          if (RB_GetFreeSpace(&PlayRB) >= sizeof(scratch_buf))
+          if (RB_GetFreeSpace(&PlayRB) >= SD_CHUNK_SIZE)
           {
-            fres = f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
+            fres = f_read(&File_Play, scratch_buf, SD_CHUNK_SIZE, &bytesRead);
 
             if (fres == FR_OK && bytesRead > 0)
             {
@@ -688,7 +696,7 @@ static void Audio_Loopback_Task(void *argument)
               }
             }
 
-            if (bytesRead < sizeof(scratch_buf))
+            if (bytesRead < SD_CHUNK_SIZE)
             {
               /* End of file — let audio task consume what's left */
               uint32_t drain_bytes = (BUFFER_SIZE / 2) * sizeof(int16_t);
@@ -719,9 +727,9 @@ static void Audio_Loopback_Task(void *argument)
           play_file_is_open = 1;
 
           /* Pre-fill buffer to avoid start glitches */
-          while ((PlayRB.size - PlayRB.count) >= sizeof(scratch_buf))
+          while ((PlayRB.size - PlayRB.count) >= SD_CHUNK_SIZE)
           {
-            f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
+            f_read(&File_Play, scratch_buf, SD_CHUNK_SIZE, &bytesRead);
             if (bytesRead == 0)
               break;
             RB_Write(&PlayRB, scratch_buf, bytesRead);
@@ -745,17 +753,17 @@ static void Audio_Loopback_Task(void *argument)
           /*Start filling the playback*/
           if (play_file_is_open == 1)
           {
-            if (RB_GetFreeSpace(&PlayRB) >= sizeof(scratch_buf))
+            if (RB_GetFreeSpace(&PlayRB) >= SD_CHUNK_SIZE)
             {
               /*Read from SD File */
-              fres = f_read(&File_Play, scratch_buf, sizeof(scratch_buf), &bytesRead);
+              fres = f_read(&File_Play, scratch_buf, SD_CHUNK_SIZE, &bytesRead);
 
               if (fres == FR_OK && bytesRead > 0)
               {
                 /*Push to Play Ring Buffer */
                 RB_Write(&PlayRB, scratch_buf, bytesRead);
               }
-              if (fres != FR_OK || bytesRead < sizeof(scratch_buf))
+              if (fres != FR_OK || bytesRead < SD_CHUNK_SIZE)
               {
 
                 UART_Print("End of file play reached\r\n");
@@ -765,9 +773,9 @@ static void Audio_Loopback_Task(void *argument)
             }
           }
           /*Recording*/
-          if (RecRB.count >= sizeof(scratch_buf))
+          if (RecRB.count >= SD_CHUNK_SIZE && total_sd_bytes_written < TARGET_BYTES)
           {
-            uint32_t chunk = sizeof(scratch_buf);
+            uint32_t chunk = SD_CHUNK_SIZE;
 
             /* Cap chunk size if we the target limit is near*/
             if (total_sd_bytes_written + chunk > TARGET_BYTES)
@@ -777,6 +785,19 @@ static void Audio_Loopback_Task(void *argument)
             f_write(&File_Rec, scratch_buf, chunk, &bytesWritten);
             total_sd_bytes_written += bytesWritten;
           }
+          /* Drain the leftover bytes when the audio task finishes */
+		else if (g_RecordingComplete == 1 && RecRB.count > 0 && total_sd_bytes_written < TARGET_BYTES)
+		{
+		  uint32_t remaining = RecRB.count;
+
+		  if (total_sd_bytes_written + remaining > TARGET_BYTES)
+			remaining = TARGET_BYTES - total_sd_bytes_written;
+
+		  RB_Read(&RecRB, scratch_buf, remaining);
+		  f_write(&File_Rec, scratch_buf, remaining, &bytesWritten);
+		  total_sd_bytes_written += bytesWritten;
+		  RecRB.count = 0;
+		}
 
           if (total_sd_bytes_written >= TARGET_BYTES)
           {

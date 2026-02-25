@@ -1,0 +1,79 @@
+
+-----------------------------------------------------------
+ FRONTIER LABS Bioacoustic Audio Recorder 
+ Serial Number: 00023845
+ Config: Stereo, Ext-power
+ Firmware: 3.21 (Mar 18 2020 15:40:10)
+-----------------------------------------------------------
+01/01/2010 00:00:00 Wakeup from power being connected
+01/01/2010 00:00:01 GPS enabled
+01/01/2010 00:00:02 Battery at 99% ( 4.19 V )
+01/01/2010 00:00:02 Date and time not set
+01/01/2010 00:01:00 Schedule loaded
+01/01/2010 00:01:00   Name: STUDY
+01/01/2010 00:01:00   Backup GPS location: 27°27"59'S 153°1"0'E
+01/01/2010 00:01:00   Number of entries: 1
+01/01/2010 00:01:00   1) "REC" Start at 00:00 on 1/1/2019 and record for 60 mins at 44100 Hz with no compression every 60 mins until 23:00 every day for as many days as possible
+01/01/2010 00:01:00 SD Card detected in slot 1
+01/01/2010 00:01:01 SD Card :
+01/01/2010 00:01:01   Format type      Fat32
+01/01/2010 00:01:01   Manufacturer ID  3
+01/01/2010 00:01:01   OEM ID           SD
+01/01/2010 00:01:01   Product Name     SC32G
+01/01/2010 00:01:01   Product Revision 8.0
+01/01/2010 00:01:01   Serial Number    14170625
+01/01/2010 00:01:01   Manufacture Date 2019/03
+01/01/2010 00:01:01   Speed            50
+01/01/2010 00:01:01   Capacity         31166976
+01/01/2010 00:01:01   Wr Current Vmin  6
+01/01/2010 00:01:01   Wr Current Vmax  6
+01/01/2010 00:01:01   Write Bl Size    512
+01/01/2010 00:01:01   Erase Bl Size    65536
+01/01/2010 00:01:01 No card in SD slot 2.
+01/01/2010 00:01:01 No card in SD slot 3.
+01/01/2010 00:01:01 No card in SD slot 4.
+01/01/2010 00:01:02 Waiting for valid clock
+01/01/2010 00:01:18 BAR switched OFF (All future recordings disabled)
+01/01/2010 00:01:18 BAR powering down
+
+01/01/2010 00:01:18 GPS disabled
+
+-----------------------------------------------------------
+ FRONTIER LABS Bioacoustic Audio Recorder 
+ Serial Number: 00023845
+ Config: Stereo, Ext-power
+ Firmware: 3.21 (Mar 18 2020 15:40:10)
+-----------------------------------------------------------
+01/01/2010 00:01:27 Wakeup from ON/OFF switch
+01/01/2010 00:01:27 GPS enabled
+01/01/2010 00:01:28 Battery at 100% ( 4.24 V )
+01/01/2010 00:01:28 Date and time not set
+01/01/2010 00:01:33 Schedule loaded
+01/01/2010 00:01:33   Name: STUDY
+01/01/2010 00:01:33   Backup GPS location: 27°27"59'S 153°1"0'E
+01/01/2010 00:01:33   Number of entries: 1
+01/01/2010 00:01:33   1) "REC" Start at 00:00 on 1/1/2019 and record for 60 mins at 44100 Hz with no compression every 60 mins until 23:00 every day for as many days as possible
+01/01/2010 00:01:33 SD Card detected in slot 1
+01/01/2010 00:01:34 SD Card :
+01/01/2010 00:01:34   Format type      Fat32
+01/01/2010 00:01:34   Manufacturer ID  3
+01/01/2010 00:01:34   OEM ID           SD
+01/01/2010 00:01:34   Product Name     SC32G
+01/01/2010 00:01:34   Product Revision 8.0
+01/01/2010 00:01:34   Serial Number    14170625
+01/01/2010 00:01:34   Manufacture Date 2019/03
+01/01/2010 00:01:34   Speed            50
+01/01/2010 00:01:34   Capacity         31166976
+01/01/2010 00:01:34   Wr Current Vmin  6
+01/01/2010 00:01:34   Wr Current Vmax  6
+01/01/2010 00:01:34   Write Bl Size    512
+01/01/2010 00:01:34   Erase Bl Size    65536
+01/01/2010 00:01:34 No card in SD slot 2.
+01/01/2010 00:01:34 No card in SD slot 3.
+01/01/2010 00:01:34 No card in SD slot 4.
+01/01/2010 00:01:34 Microphone B attached
+01/01/2010 00:01:35 Waiting for valid clock
+01/01/2010 00:02:50 BAR switched OFF (All future recordings disabled)
+01/01/2010 00:02:50 BAR powering down
+
+01/01/2010 00:02:50 GPS disabled
