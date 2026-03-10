@@ -33,16 +33,6 @@ extern osMessageQueueId_t SDQueueHandle;
 /* -----------------------------------------------------------------------------
  * BUFFERS - Must be in D3 SRAM for DMA access
  * -------------------------------------------------------------------------- */
-/*#if defined(__GNUC__)
-__attribute__((section(".RAM_D3")))
-#endif
-int16_t RecordBuffer[BUFFER_SIZE];
-
-#if defined(__GNUC__)
-__attribute__((section(".RAM_D3")))
-#endif
-int16_t PlayBuffer[BUFFER_SIZE];
-*/
 
 /* Add ALIGN_32BYTES macro if available, or use attribute */
 #if defined(__GNUC__)
@@ -193,4 +183,5 @@ int Audio_FixLineInConfig(void)
 	if (WM8994_WriteReg(0x002A, line_in_cfg) != 0) return -1;
     return 0; // Success
 }
+
 

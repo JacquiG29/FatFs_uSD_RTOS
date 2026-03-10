@@ -26,3 +26,28 @@ LAB TEST TOMORROW:
 
 41-45 PLAY B1 LINEOUT -> RECORD B2 LINE IN
 41-45 PLAY B2 LINEOUT -> RECORD B1 LINE IN
+
+TRY WITH PURE TONES TO DETECT UNDERRUNS 
+CHECK IF ITS DURING ACQUISITION OR DURING STORAGE 
+IMPLEMENT GOERTZEL ALGORTIHM
+CHECK CROSSTALK WITH SINE SWEEP 
+AUDIO ANALYZER 
+GUARANTEE FINISHING AT 0 CROSSING 
+-3DB IN EACH EXTREMITY
+WE CAN TRY FROM MORE RANHGE OF LOW F AND HIGH F 
+SCHDULLING TIME AND DATE TO RUN THE SYSTEM 
+MAKE AN ACQUISITION EVERY 5 MIN FOR EXAMPLE, MAYBE IN THE SD CARD A FILE THAT I CAND READ TO OPERATE 
+
+
+-CREATE A MOCKUP OF POSSIBLE WORFLOW ON SCHEDULING TASKS 
+-Think about the idea of having different possible inputs 
+-Ask Mateo about the extra board needed
+-Try to implement 96kHz sample rate
+
+-Tomorrow: come to test the circuit of current, check if the microphone works 
+-Test the power consumption of STM32 board
+-Schedule with Tim a chamber test for Monday 
+-Terje said that they have available antennas, need to test with him possible connectors and things that might work
+
+-Check in code the 10th recording,why it presents more delay?
+-Check with new SD cards if underruns occur 

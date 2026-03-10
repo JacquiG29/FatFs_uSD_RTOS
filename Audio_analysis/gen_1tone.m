@@ -1,9 +1,9 @@
-T         = 12;                    % sine_wave duration [s]
+T         = 18;                    % sine_wave duration [s]
 amplitude = 0.5;                   % Peak amplitude (0.0 - 1.0), leave headroom
 f1        = 1000;                  % test frequency [Hz]
 fs        = 48000;                 % Sample rate [Hz]
 bit_depth = 16;                    % Bit depth: 16 or 24
-filename  = 'SIN_1KR.wav';   % Output filename
+filename  = 'SIN_1K.wav';   % Output filename
 
 generate_sine(T, amplitude, f1, fs, bit_depth, filename);
 
@@ -31,13 +31,23 @@ function generate_sine(T, amplitude, f1, fs, bit_depth, filename)
 
     %% Sine wave generation
     sine_wave = amplitude * sin(2*pi * f1 * t);
-    zero_channel = zeros(N,1);
+    
+    %% Apply short fade-in/fade-out 
+    fade_samples = round(0.1 * fs);  
+    fade_in  = linspace(0, 1, fade_samples)';
+    fade_out = linspace(1, 0, fade_samples)';
+    sine_wave(1:fade_samples) = sine_wave(1:fade_samples) .* fade_in;
+    sine_wave(end - fade_samples+1:end) = sine_wave(end - fade_samples+1:end) .* fade_out;
+    n_sil = 3;
+    sine_wave = [sine_wave; zeros(round(n_sil * fs), 1)];
+    
+    zero_channel = zeros(size(sine_wave, 1), 1);
 
     %% Save mono reference for reporting/plotting, then make stereo
     sine_wave_mono   = sine_wave;            % Nx1 mono
-    sine_wave_stereo = [zero_channel, sine_wave]; % R only
+    % sine_wave_stereo = [zero_channel, sine_wave]; % R only
     % sine_wave_stereo = [sine_wave, zero_channel]; % L only
-    % sine_wave_stereo = [sine_wave, sine_wave];   % Nx2 stereo (identical L and R)
+    sine_wave_stereo = [sine_wave, sine_wave];   % Nx2 stereo (identical L and R)
 
     %% Write WAV file
     audiowrite(filename, sine_wave_stereo, fs, 'BitsPerSample', bit_depth);

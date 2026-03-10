@@ -16,16 +16,15 @@
 % =========================================================================
 %% --- USER PARAMETERS ----------------------------------------
 
-T         = 12;                    % Sweep duration [s]
+T         = 18;                    % Sweep duration [s]
 amplitude = 0.5;                   % Peak amplitude (0.0 - 1.0), leave headroom
-f1        = 20;                    % Start frequency [Hz]
-f2        = 20000;                 % End frequency [Hz]
+f1        = 1;                    % Start frequency [Hz]
+f2        = 24000;                 % End frequency [Hz]
 fs        = 48000;                 % Sample rate [Hz]
 bit_depth = 16;                    % Bit depth: 16 or 24
-filename  = 'SINE_SWEEP.wav';   % Output filename
+filename  = 'ESS_R.wav';   % Output filename
 
 %% --- GENERATE SWEEP ------------------------------------------------------
-
 generate_sweep(T, amplitude, f1, f2, fs, bit_depth, filename);
 
 %% =========================================================================
@@ -58,10 +57,23 @@ function generate_sweep(T, amplitude, f1, f2, fs, bit_depth, filename)
     %% Exponential sine sweep (Farina method)
     L     = T / log(f2/f1);
     sweep = amplitude * sin(2*pi * f1 * L * (exp(t/T * log(f2/f1)) - 1));
+    
 
+     %% Apply short fade-in/fade-out 
+    fade_samples = round(0.1 * fs);  
+    fade_in  = linspace(0, 1, fade_samples)';
+    fade_out = linspace(1, 0, fade_samples)';
+    sweep(1:fade_samples) = sweep(1:fade_samples) .* fade_in;
+    sweep(end - fade_samples+1:end) = sweep(end - fade_samples+1:end) .* fade_out;
+    n_sil = 3;
+    sweep = [sweep; zeros(round(n_sil * fs), 1)];
+    
+    zero_channel = zeros(size(sweep, 1), 1);
     %% Save mono reference for reporting/plotting, then make stereo
     sweep_mono   = sweep;            % Nx1 mono
-    sweep_stereo = [sweep, sweep];   % Nx2 stereo (identical L and R)
+    % sweep_stereo = [sweep, sweep];   % Nx2 stereo (identical L and R)
+    sweep_stereo = [zero_channel, sweep]; % R only
+    % sweep_stereo = [sweep, zero_channel]; % L only
 
     %% Write WAV file
     audiowrite(filename, sweep_stereo, fs, 'BitsPerSample', bit_depth);

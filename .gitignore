@@ -42,6 +42,11 @@
 *.idb
 *.pdb
 
+# WAVFILES
+Audio_analysis/B1/*.WAV
+Audio_analysis/B2/*.WAV
+Audio_analysis/B1_N/*.WAV
+
 # Kernel Module Compile Results
 *.mod*
 *.cmd
