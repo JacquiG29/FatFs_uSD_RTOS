@@ -1,0 +1,15 @@
+../Application/User/Core/rtc_functions.c:3:6:SystemClock_ConfigRTC	1
+../Application/User/Core/rtc_functions.c:6:6:MX_RTC_Init	6
+../Application/User/Core/rtc_functions.c:97:6:HAL_RTC_MspInit	3
+../Application/User/Core/rtc_functions.c:131:6:HAL_RTC_MspDeInit	2
+../Application/User/Core/rtc_functions.c:148:6:UART_Receive	1
+../Application/User/Core/rtc_functions.c:154:9:Set_RTC_Time	2
+../Application/User/Core/rtc_functions.c:184:9:Set_RTC_Date	2
+../Application/User/Core/rtc_functions.c:216:9:Set_RTC_Alarm	4
+../Application/User/Core/rtc_functions.c:284:6:Print_Time	1
+../Application/User/Core/rtc_functions.c:297:6:Print_Date	1
+../Application/User/Core/rtc_functions.c:308:6:Print_Alarm	3
+../Application/User/Core/rtc_functions.c:338:6:Show_Menu	1
+../Application/User/Core/rtc_functions.c:352:6:HAL_RTC_AlarmAEventCallback	1
+../Application/User/Core/rtc_functions.c:356:16:FS_WriteAlarm	5
+../Application/User/Core/rtc_functions.c:394:16:FS_ReadAlarmList	5

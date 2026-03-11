@@ -1,0 +1,12 @@
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:48:9:S70KL1281_Read	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:82:9:S70KL1281_Read_DMA	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:116:9:S70KL1281_Write	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:150:9:S70KL1281_Write_DMA	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:181:9:S70KL1281_EnableMemoryMappedMode	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:216:9:S70KL1281_ReadCfgReg0	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:248:9:S70KL1281_WriteCfgReg0	5
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:300:9:S70KL1281_ReadCfgReg1	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:332:9:S70KL1281_WriteCfgReg1	5
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:386:9:S70KL1281_ReadID	5
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:434:9:S70KL1281_EnterPowerDown	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/Components/s70kl1281/s70kl1281.c:463:9:S70KL1281_LeavePowerDown	3

@@ -52,41 +52,41 @@ function analyze_loopback(ref_file, rec_file, channel)
 
     [H_welch, f_welch] = tfestimate(ref_aligned, rec_aligned, win_tf, noverlap_tf, nfft_tf, fs);
 
-    % figure('Name', rec_file, 'NumberTitle', 'off');
-    % 
-    % subplot(2,1,1);
-    % semilogx(f_welch, 20*log10(abs(H_welch)), 'LineWidth', 0.8);
-    % grid on;
-    % title(sprintf('Frequency Response — %s', rec_file));
-    % xlabel('Frequency (Hz)');
-    % ylabel('Magnitude (dB)');
-    % xlim([20 20000]);
-    % ylim([-5 5]);
-    % 
-    % % --- Impulse Response (spectral division) ---
-    % N_fft = 2^nextpow2(2 * len);
-    % REF = fft(ref_aligned, N_fft);
-    % REC = fft(rec_aligned, N_fft);
-    % 
-    % reg = max(abs(REF)) * 1e-6;
-    % H_raw = REC ./ (REF + reg * (abs(REF) < reg));
-    % ir = real(ifft(H_raw));
-    % 
-    % ir = ir(1:len);
-    % t_ir = (0:length(ir)-1) / fs;
-    % 
-    % [~, peakIdx] = max(abs(ir));
-    % peakTime = (peakIdx - 1) / fs;
-    % fprintf('\n--- Impulse Response ---\n');
-    % fprintf('  Peak value : %.6f  (at sample %d)\n', ir(peakIdx), peakIdx);
-    % fprintf('  Peak time  : %.4f ms\n\n', peakTime*1e3);
-    % 
-    % subplot(2,1,2);
-    % plot(t_ir, ir, 'LineWidth', 0.8);
-    % grid on;
-    % title(sprintf('Impulse Response — %s', rec_file));
-    % xlabel('Time (s)');
-    % xlim([0 0.005]);
+    figure('Name', rec_file, 'NumberTitle', 'off');
+
+    subplot(2,1,1);
+    semilogx(f_welch, 20*log10(abs(H_welch)), 'LineWidth', 0.8);
+    grid on;
+    title(sprintf('Frequency Response — %s', rec_file));
+    xlabel('Frequency (Hz)');
+    ylabel('Magnitude (dB)');
+    xlim([20 20000]);
+    ylim([-5 5]);
+
+    % --- Impulse Response (spectral division) ---
+    N_fft = 2^nextpow2(2 * len);
+    REF = fft(ref_aligned, N_fft);
+    REC = fft(rec_aligned, N_fft);
+
+    reg = max(abs(REF)) * 1e-6;
+    H_raw = REC ./ (REF + reg * (abs(REF) < reg));
+    ir = real(ifft(H_raw));
+
+    ir = ir(1:len);
+    t_ir = (0:length(ir)-1) / fs;
+
+    [~, peakIdx] = max(abs(ir));
+    peakTime = (peakIdx - 1) / fs;
+    fprintf('\n--- Impulse Response ---\n');
+    fprintf('  Peak value : %.6f  (at sample %d)\n', ir(peakIdx), peakIdx);
+    fprintf('  Peak time  : %.4f ms\n\n', peakTime*1e3);
+
+    subplot(2,1,2);
+    plot(t_ir, ir, 'LineWidth', 0.8);
+    grid on;
+    title(sprintf('Impulse Response — %s', rec_file));
+    xlabel('Time (s)');
+    xlim([0 0.005]);
 
 end
 

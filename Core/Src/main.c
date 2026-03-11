@@ -26,20 +26,23 @@
 #include <string.h>
 #include "stdio.h"
 #include "arm_math.h"
+#include "stm32h735g_discovery_lcd.h"
+#include "stm32_lcd.h"  // For UTIL_LCD_* drawing functions
 /* Private includes --------------
  * --------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "audio_record.h" /* Provides Audio_LoopbackInit() and buffers */
-
+#include "rtc_functions.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-char version[] = "1.0.2";
+char version[] = "1.1.0";
 int32_t ProcessStatus = 0;
 UART_HandleTypeDef huart3;
-
+RTC_HandleTypeDef hrtc;
+uint8_t flag_set_time = 2;
 #define SD_SAMPLE_RATE 48000
 
 typedef enum {
@@ -108,13 +111,13 @@ void Create_WAV_Header(WavHeader *header, uint32_t waveDataSize) {
 /* Ring Buffer Settings */
 #define RB_SIZE (128 * 1024)  // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
 #define SD_CHUNK_SIZE (4 * 1024)  // 4KB
-__attribute__((section(".axi_sram")))  uint8_t RB_Rec_Buffer[RB_SIZE];  // From Mic
-__attribute__((section(".axi_sram")))  uint8_t RB_Play_Buffer[RB_SIZE]; // To Speaker
+__attribute__((section(".axi_sram")))   uint8_t RB_Rec_Buffer[RB_SIZE];  // From Mic
+__attribute__((section(".axi_sram")))   uint8_t RB_Play_Buffer[RB_SIZE]; // To Speaker
 /* Create a temporary buffer for SD writing to avoid reading 1 byte at a time */
-__attribute__((section(".axi_sram")))  uint8_t scratch_buf[SD_CHUNK_SIZE]; // Shared temp buffer
-__attribute__((section(".axi_sram")))  FATFS SDFatFs;
-__attribute__((section(".axi_sram")))  FIL File_Rec;
-__attribute__((section(".axi_sram")))  FIL File_Play;
+__attribute__((section(".axi_sram")))   uint8_t scratch_buf[SD_CHUNK_SIZE]; // Shared temp buffer
+__attribute__((section(".axi_sram")))   FATFS SDFatFs;
+__attribute__((section(".axi_sram")))   FIL File_Rec;
+__attribute__((section(".axi_sram")))   FIL File_Play;
 /* Global variable to track total bytes recorded */
 static uint32_t total_bytes_recorded = 0;
 RingBuffer_t RecRB = { .buffer = RB_Rec_Buffer, .size = RB_SIZE, .head = 0,
@@ -229,10 +232,52 @@ int main(void) {
 	BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 	BSP_SD_Init(0);
 	BSP_SD_DetectITConfig(0);
+
 	MX_USART3_UART_Init();
-	static char message[64];;
+	static char message[64];
 	sprintf(message, "\r\nVersion: %s\r\n", version);
 	UART_Print(message);
+
+	/* Initialize the LCD */
+	if (BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE) != BSP_ERROR_NONE) {
+		Error_Handler();
+	}
+	UTIL_LCD_SetFuncDriver(&LCD_Driver);
+
+	/* Example: draw something on screen */
+	UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+	UTIL_LCD_SetFont(&Font24);
+	UTIL_LCD_DisplayStringAt(0, 80, (uint8_t*) "Audio Acquisition System",
+			CENTER_MODE);
+	UTIL_LCD_SetFont(&Font16);
+	UTIL_LCD_DisplayStringAt(0, 120, (uint8_t*) "Standalone mode", CENTER_MODE);
+	sprintf(message, "Version: %s", version);
+	UTIL_LCD_DisplayStringAt(0, 140, (uint8_t*) message, CENTER_MODE);
+
+	//Init RTC
+	MX_RTC_Init();
+	HAL_Delay(200);//give it time to init correctly
+	RTC_DateTypeDef sDate;
+	HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+	if (sDate.Year == 0x00){
+		flag_set_time = 2;
+	} else {
+		flag_set_time = 0;
+	}
+	while (flag_set_time > 0) {
+		if (Set_RTC_Date() == 1) {
+			flag_set_time--;
+		}
+		if (Set_RTC_Time() == 1) {
+			flag_set_time--;
+		}
+	}
+	HAL_Delay(200);
+	Print_Date();
+	Print_Time();
+
 	/* USER CODE END SysInit */
 
 	/* Initialize all configured peripherals */
@@ -319,8 +364,10 @@ static void SystemClock_Config(void) {
 	}
 
 	/* Enable HSE Oscillator and activate PLL with HSE as source */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE
+			| RCC_OSCILLATORTYPE_LSE;
 	RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+	RCC_OscInitStruct.LSEState = RCC_LSE_ON;
 	RCC_OscInitStruct.HSIState = RCC_HSI_OFF;
 	RCC_OscInitStruct.CSIState = RCC_CSI_OFF;
 	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -411,7 +458,7 @@ static void Audio_Loopback_Task(void *argument) {
 
 	/* Start Playback FIRST to generate the SAI Clock */
 	if (BSP_AUDIO_OUT_Play(0, (uint8_t*) PlayBuffer,
-			BUFFER_SIZE * sizeof(int16_t)) != 0) {
+	BUFFER_SIZE * sizeof(int16_t)) != 0) {
 		UART_Print("Audio Play Init Error\r\n");
 		Error_Handler();
 	}
@@ -419,7 +466,7 @@ static void Audio_Loopback_Task(void *argument) {
 
 	/* Start Recording */
 	if (BSP_AUDIO_IN_Record(0, (uint8_t*) RecordBuffer,
-			BUFFER_SIZE * sizeof(int16_t)) != 0) {
+	BUFFER_SIZE * sizeof(int16_t)) != 0) {
 		UART_Print("Audio Record Init Error\r\n");
 		Error_Handler();
 	}
@@ -429,7 +476,7 @@ static void Audio_Loopback_Task(void *argument) {
 	while (1) {
 		uint32_t state;
 		osStatus_t status = osMessageQueueGet(SDQueueHandle, &state, NULL,
-				osWaitForever);
+		osWaitForever);
 
 		if (status == osOK) // check if message was received
 				{
@@ -991,6 +1038,24 @@ static void MPU_Config(void) {
 	MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
 
 	HAL_MPU_ConfigRegion(&MPU_InitStruct);
+	/* ============================================================
+	 REGION 3: OSPI RAM (0x70000000) for LCD Framebuffer
+	 Write-Through so LTDC can read the framebuffer from memory.
+	 ============================================================ */
+	MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+	MPU_InitStruct.Number = MPU_REGION_NUMBER3;
+	MPU_InitStruct.BaseAddress = 0x70000000;
+	MPU_InitStruct.Size = MPU_REGION_SIZE_16MB;
+	MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+	MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+	MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE; /* Write-Through */
+	MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+	MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+	MPU_InitStruct.SubRegionDisable = 0x00;
+	MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+
+	HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
 	/* Enable the MPU */
 	HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
@@ -1047,7 +1112,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart) {
 		/* Configure USART3 clock source as HSI (64 MHz) */
 		PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART3;
 		PeriphClkInitStruct.Usart234578ClockSelection =
-				RCC_USART234578CLKSOURCE_HSI;
+		RCC_USART234578CLKSOURCE_HSI;
 		if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
 			Error_Handler();
 		}

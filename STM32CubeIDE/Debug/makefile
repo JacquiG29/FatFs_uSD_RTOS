@@ -1,6 +1,6 @@
 ################################################################################
 # Automatically-generated file. Do not edit!
-# Toolchain: GNU Tools for STM32 (13.3.rel1)
+# Toolchain: GNU Tools for STM32 (14.3.rel1)
 ################################################################################
 
 -include ../makefile.init
@@ -9,6 +9,7 @@ RM := rm -rf
 
 # All of the sources participating in the build are defined here
 -include sources.mk
+-include Utilities/subdir.mk
 -include Middlewares/FreeRTOS/portable/subdir.mk
 -include Middlewares/FreeRTOS/CMSIS_RTOS/subdir.mk
 -include Middlewares/FreeRTOS/subdir.mk

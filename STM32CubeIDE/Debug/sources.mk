@@ -1,6 +1,6 @@
 ################################################################################
 # Automatically-generated file. Do not edit!
-# Toolchain: GNU Tools for STM32 (13.3.rel1)
+# Toolchain: GNU Tools for STM32 (14.3.rel1)
 ################################################################################
 
 ELF_SRCS := 
@@ -35,4 +35,5 @@ Middlewares/FatFs/Options \
 Middlewares/FreeRTOS/CMSIS_RTOS \
 Middlewares/FreeRTOS \
 Middlewares/FreeRTOS/portable \
+Utilities \
 
