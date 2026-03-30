@@ -27,7 +27,7 @@ extern "C" {
 /* Configuration -------------------------------------------------------------*/
 #define AUDIO_SAMPLE_RATE       48000   /* Hz */
 #define AUDIO_VOLUME            30      /* Input gain 0-100 */
-#define BUFFER_SIZE             2048   /* Samples (not bytes) */
+#define BUFFER_SIZE             4096   /* Samples (not bytes) */
 
 /* Buffers - defined in audio_loopback.c, placed in RAM_D3 for DMA */
 extern int16_t RecordBuffer[BUFFER_SIZE];

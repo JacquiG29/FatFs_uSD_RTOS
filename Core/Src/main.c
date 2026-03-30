@@ -26,48 +26,26 @@
 #include <string.h>
 #include "stdio.h"
 #include "arm_math.h"
-#include "stm32h735g_discovery_lcd.h"
-#include "stm32_lcd.h"  // For UTIL_LCD_* drawing functions
 /* Private includes --------------
  * --------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "audio_record.h" /* Provides Audio_LoopbackInit() and buffers */
-#include "rtc_functions.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-char version[] = "1.1.0";
-int32_t ProcessStatus = 0;
+char version[10] = "1.3.5";
+uint8_t system_mode = 2; //Standalone: 0, Distributed node: 1, Not set: 2
 UART_HandleTypeDef huart3;
 RTC_HandleTypeDef hrtc;
-uint8_t flag_set_time = 2;
+uint8_t flag_set_time = 1;
 #define SD_SAMPLE_RATE 48000
 
-typedef enum {
-	BUFFER_OFFSET_NONE = 0, BUFFER_OFFSET_HALF = 1, BUFFER_OFFSET_FULL = 2,
-} BUFFER_StateTypeDef;
-
-typedef enum {
-	MODE_PASSTHROUGH = 0, // ROUTE INPUT TO OUTPUT
-	MODE_RECORD = 1,      // RECORD TO SD CARD
-	MODE_PLAY = 2,        // PLAY FROM SD CARD
-	MODE_FULL_DUPLEX = 3, // PLAY AND RECORD FROM SD CARD
-} Operation_StateTypeDef;
-
-typedef struct {
-	uint8_t *buffer;         // Pointer to the actual data array (AXI SRAM)
-	uint32_t size;           // Total size
-	volatile uint32_t head;  // Write index
-	volatile uint32_t tail;  // Read index
-	volatile uint32_t count; // Available bytes
-} RingBuffer_t;
-
 /* ===== SET THIS BEFORE FLASHING TO SELECT MODE ===== */
-volatile uint8_t g_Mode = MODE_FULL_DUPLEX; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
-#define RECORD_DURATION_SECONDS 20
-const TCHAR *audio_play = "SIN_1K.WAV";
+volatile uint8_t g_Mode = MODE_PLAY; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
+#define RECORD_DURATION_SECONDS 15
+const TCHAR *audio_play = "PIANO1.WAV";
 /* WAV FILES NAMES:
  * ESS
  * SIN_1KL
@@ -111,13 +89,13 @@ void Create_WAV_Header(WavHeader *header, uint32_t waveDataSize) {
 /* Ring Buffer Settings */
 #define RB_SIZE (128 * 1024)  // 128KB Buffer (Approx 400ms of stereo audio at 48kHz)
 #define SD_CHUNK_SIZE (4 * 1024)  // 4KB
-__attribute__((section(".axi_sram")))   uint8_t RB_Rec_Buffer[RB_SIZE];  // From Mic
-__attribute__((section(".axi_sram")))   uint8_t RB_Play_Buffer[RB_SIZE]; // To Speaker
+__attribute__((section(".axi_sram")))    uint8_t RB_Rec_Buffer[RB_SIZE];  // From Mic
+__attribute__((section(".axi_sram")))    uint8_t RB_Play_Buffer[RB_SIZE]; // To Speaker
 /* Create a temporary buffer for SD writing to avoid reading 1 byte at a time */
-__attribute__((section(".axi_sram")))   uint8_t scratch_buf[SD_CHUNK_SIZE]; // Shared temp buffer
-__attribute__((section(".axi_sram")))   FATFS SDFatFs;
-__attribute__((section(".axi_sram")))   FIL File_Rec;
-__attribute__((section(".axi_sram")))   FIL File_Play;
+__attribute__((section(".axi_sram")))    uint8_t scratch_buf[SD_CHUNK_SIZE]; // Shared temp buffer
+__attribute__((section(".axi_sram")))    FATFS SDFatFs;
+__attribute__((section(".axi_sram")))    FIL File_Rec;
+__attribute__((section(".axi_sram")))    FIL File_Play;
 /* Global variable to track total bytes recorded */
 static uint32_t total_bytes_recorded = 0;
 RingBuffer_t RecRB = { .buffer = RB_Rec_Buffer, .size = RB_SIZE, .head = 0,
@@ -132,6 +110,16 @@ volatile uint8_t g_StartRecording = 0; /* Set to 1 to start recording */
 volatile uint8_t g_RecordingComplete = 0;
 volatile uint8_t g_SDReady = 0; /* Set to 1 when SD file is open and ready */
 volatile uint8_t g_ButtonPressed = 0; /* Set to 1 by button ISR */
+volatile uint8_t g_ExtiFlag = 0; /* Set to 1 by ARD_D8 (PE3) EXTI */
+volatile uint8_t g_Busy = 0;    /* 1 while recording/playing — blocks new commands */
+volatile uint8_t g_AlarmFlag = 0;
+/* ---- Arduino header GPIO pin definitions ---- */
+#define ARD_D2_PIN    GPIO_PIN_3   /* PG3 - input */
+#define ARD_D4_PIN    GPIO_PIN_4   /* PG4 - input */
+#define ARD_D2D4_PORT GPIOG
+
+#define ARD_D8_PIN    GPIO_PIN_3   /* PE3 - EXTI (dedicated EXTI3_IRQn) */
+#define ARD_D8_PORT   GPIOE
 static uint32_t g_FileIndex = 1; /* Increments per recording: REC_01, REC_02, ... */
 
 static uint32_t msg_count = 2;
@@ -165,6 +153,11 @@ osThreadId_t SEM_SDHandle;
 static osThreadAttr_t sd_task_attr = { .stack_size = 4096, // FatFS needs a healthy stack size!
 		.priority = (osPriority_t) osPriorityNormal, };
 
+osThreadId_t SysCtrlTaskHandle;
+static osThreadAttr_t sysctrl_attr = { .stack_size = 2048, .priority =
+		(osPriority_t) osPriorityBelowNormal, }; /* Lowest of the 3 tasks */
+osSemaphoreId_t ExtiSemaphoreHandle;
+
 /* Audio_Record_To_SD_Task removed — SD recording merged into Audio_Loopback_Task */
 
 /* USER CODE BEGIN PV */
@@ -182,10 +175,10 @@ static void MPU_Config(void);
 #endif /* __GNUC__ */
 static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void STATUS_Thread(void *argument);
 static void Audio_Loopback_Task(void *argument);
 static void MX_USART3_UART_Init(void);
 static void SD_Write_Task(void *argument);
+static void System_Controller_Task(void *argument);
 static int SD_Open_Play(void);
 static int SD_Open_Rec(char *rec_filename, uint32_t FileIndex);
 void RB_Write(RingBuffer_t *rb, uint8_t *data, uint32_t len);
@@ -245,48 +238,33 @@ int main(void) {
 	UTIL_LCD_SetFuncDriver(&LCD_Driver);
 
 	/* Example: draw something on screen */
-	UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
-	UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
-	UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
-	UTIL_LCD_SetFont(&Font24);
-	UTIL_LCD_DisplayStringAt(0, 80, (uint8_t*) "Audio Acquisition System",
-			CENTER_MODE);
-	UTIL_LCD_SetFont(&Font16);
-	UTIL_LCD_DisplayStringAt(0, 120, (uint8_t*) "Standalone mode", CENTER_MODE);
-	sprintf(message, "Version: %s", version);
-	UTIL_LCD_DisplayStringAt(0, 140, (uint8_t*) message, CENTER_MODE);
+	StartMenu_LCD(version);
 
 	//Init RTC
 	MX_RTC_Init();
-	HAL_Delay(200);//give it time to init correctly
+	HAL_Delay(200); //give it time to init correctly
 	RTC_DateTypeDef sDate;
 	HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
-	if (sDate.Year == 0x00){
-		flag_set_time = 2;
+	if (sDate.Year == 0x00) {
+		flag_set_time = 1;
 	} else {
 		flag_set_time = 0;
 	}
 	while (flag_set_time > 0) {
-		if (Set_RTC_Date() == 1) {
-			flag_set_time--;
-		}
-		if (Set_RTC_Time() == 1) {
+		if (Set_DateTime_LCD() == 1) {
 			flag_set_time--;
 		}
 	}
 	HAL_Delay(200);
 	Print_Date();
 	Print_Time();
-
+	Print_DateTime_LCD();
 	/* USER CODE END SysInit */
-
-	/* Initialize all configured peripherals */
-	MX_GPIO_Init();
 
 	if (MX_FATFS_Init() != APP_OK) {
 		Error_Handler();
 	}
-	ProcessStatus = APP_INIT;
+
 	osKernelInitialize();
 
 	UART_Print("Audio config\r\n");
@@ -302,6 +280,18 @@ int main(void) {
 
 	UART_Print("End config\r\n");
 
+	//Define operation mode
+	while (system_mode == 2) {
+		if (Set_Mode_LCD() == 0) {
+			Standalone_Menu(version);
+		} else if ((Set_Mode_LCD() == 1)) {
+			RF_Menu(version);
+		}
+	}
+
+	/* Initialize ARD GPIOs + EXTI — now that system_mode is known.
+	 * Skipped entirely in standalone mode (pins unconnected). */
+	MX_GPIO_Init();
 	UART_Print("Entering main loop...\r\n");
 
 	SDQueueHandle = osMessageQueueNew(msg_count, msg_size, NULL);
@@ -318,6 +308,13 @@ int main(void) {
 	AudioTaskHandle = osThreadNew(Audio_Loopback_Task, NULL, &audio_attr);
 
 	/* SD recording now handled inside Audio_Loopback_Task */
+
+	/* System Controller Task — master state machine for all modes.
+	 * Distributed mode: wakes on EXTI (ARD_D8) to set record/play.
+	 * Standalone mode:  will wake on RTC alarm to start full-duplex (TODO). */
+	ExtiSemaphoreHandle = osSemaphoreNew(1U, 0, NULL);
+	SysCtrlTaskHandle = osThreadNew(System_Controller_Task, NULL,
+			&sysctrl_attr);
 
 	/* Start scheduler */
 	osKernelStart();
@@ -418,35 +415,35 @@ static void SystemClock_Config(void) {
  */
 static void MX_GPIO_Init(void) {
 
-	/* GPIO Ports Clock Enable */
-}
+	/* Only configure ARD pins in distributed-node mode (system_mode == 1).
+	 * In standalone mode the pins are unconnected — leaving them
+	 * unconfigured avoids spurious EXTI3 interrupts from noise.       */
+	if (system_mode != 1)
+		return;
 
-/**
- * @brief  Toggle LED_GREEN thread
- * @param  thread not used
- * @retval None
- */
-static void STATUS_Thread(void *argument) {
-	/* USER CODE BEGIN STATUS_Thread */
-	(void) argument;
+	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
 
-	for (;;) {
-		if (ProcessStatus == APP_SD_UNPLUGGED) {
-			BSP_LED_Off(LED_OK);
-			BSP_LED_Toggle(LED_ERROR);
-			osDelay(200);
-		} else if (ProcessStatus == APP_ERROR) {
-			Error_Handler();
-		} else if (ProcessStatus == APP_OK) {
-			BSP_LED_Off(LED_ERROR);
-			BSP_LED_Toggle(LED_OK);
-			osDelay(200);
-		} else {
-			BSP_LED_Off(LED_ERROR);
-			BSP_LED_On(LED_OK);
-		}
-	}
-	/* USER CODE END STATUS_Thread */
+	/* Enable GPIOG and GPIOE clocks */
+	__HAL_RCC_GPIOG_CLK_ENABLE();
+	__HAL_RCC_GPIOE_CLK_ENABLE();
+
+	/* ----- ARD_D2 (PG3) and ARD_D4 (PG4) as inputs, pull-down ----- */
+	GPIO_InitStruct.Pin = ARD_D2_PIN | ARD_D4_PIN;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(ARD_D2D4_PORT, &GPIO_InitStruct);
+
+	/* ----- ARD_D8 (PE3) as EXTI, rising edge -----
+	 * Uses dedicated EXTI3_IRQn — no conflict with SD detect (PF5/EXTI5) */
+	GPIO_InitStruct.Pin = ARD_D8_PIN;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(ARD_D8_PORT, &GPIO_InitStruct);
+
+	HAL_NVIC_SetPriority(EXTI3_IRQn, 6, 0);
+	HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 }
 
 static void Audio_Loopback_Task(void *argument) {
@@ -458,7 +455,7 @@ static void Audio_Loopback_Task(void *argument) {
 
 	/* Start Playback FIRST to generate the SAI Clock */
 	if (BSP_AUDIO_OUT_Play(0, (uint8_t*) PlayBuffer,
-	BUFFER_SIZE * sizeof(int16_t)) != 0) {
+			BUFFER_SIZE * sizeof(int16_t)) != 0) {
 		UART_Print("Audio Play Init Error\r\n");
 		Error_Handler();
 	}
@@ -466,7 +463,7 @@ static void Audio_Loopback_Task(void *argument) {
 
 	/* Start Recording */
 	if (BSP_AUDIO_IN_Record(0, (uint8_t*) RecordBuffer,
-	BUFFER_SIZE * sizeof(int16_t)) != 0) {
+			BUFFER_SIZE * sizeof(int16_t)) != 0) {
 		UART_Print("Audio Record Init Error\r\n");
 		Error_Handler();
 	}
@@ -546,8 +543,8 @@ static void Audio_Loopback_Task(void *argument) {
 					if (bytes_fetched < bytes_to_process) {
 						memset(((uint8_t*) dst) + bytes_fetched, 0,
 								bytes_to_process - bytes_fetched);
-						BSP_LED_On(LED_ERROR);
-						underrun_count++;
+						//BSP_LED_On(LED_ERROR);
+						//underrun_count++;
 					}
 					/*RECORD PATH: ADC -> RingBuffer*/
 					if (total_bytes_recorded < TARGET_BYTES) {
@@ -615,11 +612,13 @@ static void SD_Write_Task(void *argument) {
 	/* ========== Main loop: wait for button -> record -> repeat ========== */
 	while (1) {
 		/* --- Idle: wait for button press --- */
+		g_Busy = 0;         /* Signal: ready for new commands */
 		BSP_LED_On(LED_OK); /* Solid LED = ready */
 		while (!g_ButtonPressed) {
 			osDelay(50);
 		}
 		g_ButtonPressed = 0;
+		g_Busy = 1;         /* Signal: operation in progress */
 
 		/* ================= RECORD MODE ================= */
 		if (g_Mode == MODE_RECORD) {
@@ -953,6 +952,70 @@ uint32_t RB_GetFreeSpace(RingBuffer_t *rb) {
 void BSP_PB_Callback(Button_TypeDef Button) {
 	if (Button == BUTTON_USER) {
 		g_ButtonPressed = 1;
+	}
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == ARD_D8_PIN) {
+		g_ExtiFlag = 1;
+		osSemaphoreRelease(ExtiSemaphoreHandle);
+	}
+}
+
+/**
+ * @brief  System Controller Task — master state machine (lowest priority).
+ *         Sleeps until ARD_D8 (PE3) EXTI fires, then reads ARD_D2/D4
+ *         to determine the operation mode.
+ *
+ *         Pin combination (ARD_D2 = bit0, ARD_D4 = bit1):
+ *         ARD_D4=0  ARD_D2=1  (0b01) → MODE_RECORD
+ *         ARD_D4=1  ARD_D2=0  (0b10) → MODE_PLAY
+ */
+static void System_Controller_Task(void *argument) {
+	(void) argument;
+
+	for (;;) {
+		/* Block until EXTI semaphore is released */
+		osSemaphoreAcquire(ExtiSemaphoreHandle, osWaitForever);
+
+		/* Ignore commands while recording/playing is in progress */
+		if (g_Busy) {
+			g_ExtiFlag = 0;
+			continue;
+		}
+
+		if (system_mode == 1) {
+			/* Read the two selector pins */
+			uint8_t d2 = HAL_GPIO_ReadPin(ARD_D2D4_PORT, ARD_D2_PIN); /* bit 0 */
+			uint8_t d4 = HAL_GPIO_ReadPin(ARD_D2D4_PORT, ARD_D4_PIN); /* bit 1 */
+			uint8_t config = (d4 << 1) | d2;
+
+			switch (config) {
+			case 0x01: /* ARD_D4=0, ARD_D2=1 → RECORD */
+				g_Mode = MODE_RECORD;
+				g_ButtonPressed = 1;
+				UART_Print("EXTI: Start recording\r\n");
+				break;
+
+			case 0x02: /* ARD_D4=1, ARD_D2=0 → PLAY */
+				g_Mode = MODE_PLAY;
+				g_ButtonPressed = 1;
+				UART_Print("EXTI: Start Playing\r\n");
+				break;
+
+			default:
+				/* Unknown combination — keep current mode */
+				UART_Print(
+						"EXTI: Unknown pin configuration, mode unchanged\r\n");
+				break;
+			}
+		} else if (system_mode == 0 && g_AlarmFlag) {
+			    g_AlarmFlag = 0;
+			    g_Mode = MODE_FULL_DUPLEX;
+			    g_ButtonPressed = 1;
+
+		}
+		g_ExtiFlag = 0;
 	}
 }
 /* USER CODE END 4 */

@@ -1,4 +1,6 @@
 #include "rtc_functions.h"
+extern volatile uint8_t g_AlarmFlag;
+extern osSemaphoreId_t ExtiSemaphoreHandle;
 
 void SystemClock_ConfigRTC(void) {
 }
@@ -51,7 +53,7 @@ void MX_RTC_Init(void) {
 	if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
 		Error_Handler();
 	}
-	sDate.WeekDay = RTC_WEEKDAY_TUESDAY;
+	sDate.WeekDay = RTC_WEEKDAY_MONDAY;
 	sDate.Month = RTC_MONTH_JANUARY;
 	sDate.Date = 0x01;
 	sDate.Year = 0x00;
@@ -351,6 +353,8 @@ void Show_Menu(void) {
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
 	BSP_LED_On(LED_OK);
+    g_AlarmFlag = 1;
+    osSemaphoreRelease(ExtiSemaphoreHandle);  // same semaphore, same task
 }
 
 static int32_t FS_WriteAlarm(void) {

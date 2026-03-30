@@ -22,23 +22,41 @@ function analyze_loopback(ref_file, rec_file, channel)
     fprintf(' Audio File: %s\n', rec_file);
     fprintf('========================================\n');
 
-    % --- Synchronize ---
+    % --- Synchronize & Unwrap ---
     [c, lags] = xcorr(rec, ref);
     [~, I] = max(abs(c));
-    lag = lags(I);
-    abs_lag = abs(lag);
+    raw_lag = lags(I); 
+    
+    % DMA Buffer Geometry (4096 int16_t elements = 2048 stereo frames)
+    software_pipeline = 2048;
+    
+    % Unwrap the circular artifact
+    % If the lag is negative and within one block, the record buffer 
+    % started capturing after the sweep was already flowing.
+    abs_lag = abs(raw_lag);
+    if raw_lag < 0 && abs_lag < software_pipeline
+        hw_delay = software_pipeline - abs_lag;
+        true_latency = software_pipeline + hw_delay;
+    else
+        hw_delay = 0; % Fallback if perfectly aligned or strictly delayed
+        true_latency = abs_lag;
+    end
 
-    fprintf('\n--- Absolute System Latency ---\n');
-    fprintf('  Raw xcorr lag : %d samples\n', lag);
-    fprintf('  Latency       : %d samples = %.4f ms  (@ %d Hz)\n', abs_lag, abs_lag/fs*1e3, fs);
+    fprintf('\n--- System Latency Analysis ---\n');
+    fprintf('  Measured phase lag  : %d samples\n', raw_lag);
+    fprintf('  Software pipeline   : %d samples\n', software_pipeline);
+    fprintf('  True Hardware delay : %d samples = %.4f ms\n', hw_delay, hw_delay/fs*1e3);
+    fprintf('  Total True Latency  : %d samples = %.4f ms\n', true_latency, true_latency/fs*1e3);
 
-    % Align
-    if lag > 0
-        rec_aligned = rec(lag+1 : end);
+    % --- Align Arrays ---
+    % We strictly use the raw_lag for slicing. Even though the physical 
+    % latency is higher, the file itself is physically offset by raw_lag.
+    if raw_lag > 0
+        rec_aligned = rec(raw_lag+1 : end);
         ref_aligned = ref;
     else
         rec_aligned = rec;
-        ref_aligned = ref(-lag+1 : end);
+        ref_aligned = ref(-raw_lag+1 : end);
     end
 
     len = min(length(rec_aligned), length(ref_aligned));
@@ -87,6 +105,35 @@ function analyze_loopback(ref_file, rec_file, channel)
     title(sprintf('Impulse Response — %s', rec_file));
     xlabel('Time (s)');
     xlim([0 0.005]);
+    
+    % ── Figure 2: Impulse Response ────────────────────────────
+fig2 = figure('Name', [rec_file ' — Impulse Response'], ...
+        'NumberTitle', 'off', ...
+                'Color',       'white', ...
+        'Units',       'centimeters', ...
+        'Position',    [22, 8, 18, 10]);  % offset so windows don't overlap
+
+ax2 = axes(fig2);
+plot(ax2, t_ir * 1e3, ir, ...   % convert to ms for a nicer x-axis
+          'LineWidth', 2, 'Color', [0.85 0.33 0.10]);
+
+grid on;  box on;
+ax2.Color     = 'white';
+ax2.GridColor = [0.7 0.7 0.7];
+ax2.GridAlpha = 0.5;
+ax2.LineWidth = 1.2;
+ax2.FontSize  = 11;
+
+title(ax2, sprintf('Impulse Response — %s', rec_file), 'FontSize', 13, 'FontWeight', 'bold');
+xlabel(ax2, 'Time (ms)',     'FontSize', 12);    % ms instead of s
+ylabel(ax2, 'Amplitude',    'FontSize', 12);
+xlim(ax2, [0  5]);               % 0–5 ms  (was 0–0.005 s)
+xticks(ax2, 0:0.5:5);           % tick every 0.5 ms
+yline(ax2, 0, '--', 'Color', [0.5 0.5 0.5], 'LineWidth', 1);
+
+% ── Export ─────────────────────────────────────────────────
+exportgraphics(fig2, [stem1 '_ir.pdf'],  'ContentType', 'vector');
+exportgraphics(fig2, [stem1 '_ir.png'],  'Resolution', 300);
 
 end
 

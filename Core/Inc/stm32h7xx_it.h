@@ -54,6 +54,7 @@ void BusFault_Handler(void);
 void UsageFault_Handler(void);
 void DebugMon_Handler(void);
 /* USER CODE BEGIN EFP */
+void EXTI3_IRQHandler(void);
 void EXTI9_5_IRQHandler(void);
 void SDMMC1_IRQHandler(void);
 void AUDIO_OUT_SAIx_DMAx_IRQHandler(void);

@@ -10,7 +10,7 @@ end
 %% --- SECTION 3: IMPULSE RESPONSE AND FREQUENCY RESPONSE -----------------
 ref = 'SIN_1K.wav';
 
-for k = 15:18
+for k = 10:11
     rec = sprintf('F:/REC_%02d.WAV', k);
     analyze_loopback(ref, rec, 'R');
 end

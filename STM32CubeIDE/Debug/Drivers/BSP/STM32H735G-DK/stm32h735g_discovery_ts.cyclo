@@ -1,0 +1,16 @@
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:131:9:BSP_TS_Init	12
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:188:9:BSP_TS_DeInit	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:213:9:BSP_TS_GetCapabilities	2
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:234:9:BSP_TS_EnableIT	5
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:284:9:BSP_TS_DisableIT	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:316:6:BSP_TS_IRQHandler	1
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:325:13:BSP_TS_Callback	1
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:337:9:BSP_TS_GetState	11
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:423:9:BSP_TS_Get_MultiTouchState	13
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:521:9:BSP_TS_GestureConfig	3
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:546:9:BSP_TS_GetGestureId	13
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:601:9:BSP_TS_Set_Orientation	1
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:613:9:BSP_TS_Get_Orientation	1
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:631:9:GT911_Probe	5
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:677:9:FT5336_Probe	5
+D:/EMECS/stm32cubeh7-v1-12-0/STM32Cube_FW_H7_V1.12.0/Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ts.c:722:13:TS_EXTI_Callback	1

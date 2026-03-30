@@ -37,6 +37,11 @@ extern "C" {
 #include "stm32h7xx_hal_uart.h"
 #include "stm32h735g_discovery_bus.h"
 #include "stm32h735g_discovery_audio.h"
+#include "stm32h735g_discovery_lcd.h"
+#include "stm32_lcd.h"  // For UTIL_LCD_* drawing functions
+#include "audio_record.h" /* Provides Audio_LoopbackInit() and buffers */
+#include "rtc_functions.h"
+#include "lcd_function.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -84,6 +89,24 @@ extern uint32_t ButtonState;
 /* Audio update flag - set by touchscreen interrupt (not used in simplified version) */
 extern uint32_t AudioUpdate;
 
+typedef enum {
+	BUFFER_OFFSET_NONE = 0, BUFFER_OFFSET_HALF = 1, BUFFER_OFFSET_FULL = 2,
+} BUFFER_StateTypeDef;
+
+typedef enum {
+	MODE_PASSTHROUGH = 0, // ROUTE INPUT TO OUTPUT
+	MODE_RECORD = 1,      // RECORD TO SD CARD
+	MODE_PLAY = 2,        // PLAY FROM SD CARD
+	MODE_FULL_DUPLEX = 3, // PLAY AND RECORD FROM SD CARD
+} Operation_StateTypeDef;
+
+typedef struct {
+	uint8_t *buffer;         // Pointer to the actual data array (AXI SRAM)
+	uint32_t size;           // Total size
+	volatile uint32_t head;  // Write index
+	volatile uint32_t tail;  // Read index
+	volatile uint32_t count; // Available bytes
+} RingBuffer_t;
 /* =============================================================================
  * FUNCTION PROTOTYPES - AUDIO PLAYBACK (from audio_play_simple.c)
  * ============================================================================= */

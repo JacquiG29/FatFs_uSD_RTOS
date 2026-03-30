@@ -1,0 +1,14 @@
+../Application/User/Core/lcd_functions.c:11:6:StartMenu_LCD	1
+../Application/User/Core/lcd_functions.c:24:6:Standalone_Menu	1
+../Application/User/Core/lcd_functions.c:36:6:RF_Menu	1
+../Application/User/Core/lcd_functions.c:55:16:TS_InitOnce	5
+../Application/User/Core/lcd_functions.c:78:16:IsTouchInZone	5
+../Application/User/Core/lcd_functions.c:82:13:DrawButton	1
+../Application/User/Core/lcd_functions.c:94:13:WaitForTouchRelease	2
+../Application/User/Core/lcd_functions.c:126:13:DrawSetTimeScreen	1
+../Application/User/Core/lcd_functions.c:186:13:DrawSetDateScreen	1
+../Application/User/Core/lcd_functions.c:247:13:UpdateValueDisplay	2
+../Application/User/Core/lcd_functions.c:263:9:Calculate_Weekday	19
+../Application/User/Core/lcd_functions.c:294:9:Set_DateTime_LCD	30
+../Application/User/Core/lcd_functions.c:441:6:Print_DateTime_LCD	1
+../Application/User/Core/lcd_functions.c:467:9:Set_Mode_LCD	4

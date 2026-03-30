@@ -159,8 +159,15 @@ void DebugMon_Handler(void)
   * @param  None
   * @retval None
   */
+void EXTI3_IRQHandler(void)
+{
+  /* ARD_D8 (PE3) — mode-select interrupt (dedicated EXTI3 line) */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_3);
+}
+
 void EXTI9_5_IRQHandler(void)
 {
+  /* SD card detect on PF5 (EXTI line 5) — restored */
   BSP_SD_DETECT_IRQHandler(0);
 }
 
