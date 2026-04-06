@@ -27,8 +27,7 @@ void Standalone_Menu(char version[10]) {
 	UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 	UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
 	UTIL_LCD_SetFont(&Font24);
-	UTIL_LCD_DisplayStringAt(0, 80, (uint8_t*) "Standalone mode",
-			CENTER_MODE);
+	UTIL_LCD_DisplayStringAt(0, 80, (uint8_t*) "Standalone mode", CENTER_MODE);
 	UTIL_LCD_SetFont(&Font16);
 	sprintf(message, "Version: %s", version);
 	UTIL_LCD_DisplayStringAt(0, 120, (uint8_t*) message, CENTER_MODE);
@@ -39,8 +38,7 @@ void RF_Menu(char version[10]) {
 	UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 	UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
 	UTIL_LCD_SetFont(&Font24);
-	UTIL_LCD_DisplayStringAt(0, 80, (uint8_t*) "Distributed node",
-			CENTER_MODE);
+	UTIL_LCD_DisplayStringAt(0, 80, (uint8_t*) "Distributed node", CENTER_MODE);
 	UTIL_LCD_SetFont(&Font16);
 	sprintf(message, "Version: %s", version);
 	UTIL_LCD_DisplayStringAt(0, 120, (uint8_t*) message, CENTER_MODE);
@@ -465,39 +463,254 @@ void Print_DateTime_LCD(void) {
 }
 
 uint8_t Set_Mode_LCD(void) {
-    TS_InitOnce();  // make sure touch is ready
+	TS_InitOnce();  // make sure touch is ready
 
-    // Define touch zones
-    //{left edge,top edge, width,height}
-    TouchZone_t btnStandalone = { 50, 100, 380, 50 };   // left button
-    TouchZone_t btnRF   = { 50, 160, 380, 50 };   // right button
+	// Define touch zones
+	//{left edge,top edge, width,height}
+	TouchZone_t btnStandalone = { 50, 100, 380, 50 };   // left button
+	TouchZone_t btnRF = { 50, 160, 380, 50 };   // right button
 
-    // 2. DRAW the screen
-    UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
-    UTIL_LCD_SetFont(&Font24);
-    UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
-    UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
-    UTIL_LCD_DisplayStringAt(0, 30, (uint8_t*)"Select Mode", CENTER_MODE);
-    DrawButton(&btnStandalone, "Standalone", UTIL_LCD_COLOR_DARKBLUE, UTIL_LCD_COLOR_WHITE);
-    DrawButton(&btnRF,   "Distributed node",   UTIL_LCD_COLOR_DARKBLUE, UTIL_LCD_COLOR_WHITE);
+	// 2. DRAW the screen
+	UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_SetFont(&Font24);
+	UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+	UTIL_LCD_DisplayStringAt(0, 30, (uint8_t*) "Select Mode", CENTER_MODE);
+	DrawButton(&btnStandalone, "Standalone", UTIL_LCD_COLOR_DARKBLUE,
+			UTIL_LCD_COLOR_WHITE);
+	DrawButton(&btnRF, "Distributed node", UTIL_LCD_COLOR_DARKBLUE,
+			UTIL_LCD_COLOR_WHITE);
 
-    // 3. EVENT LOOP
-    TS_State_t ts;
-    while (1) {
-        HAL_Delay(50);
-        BSP_TS_GetState(0, &ts);
-        if (!ts.TouchDetected) continue;
+	// 3. EVENT LOOP
+	TS_State_t ts;
+	while (1) {
+		HAL_Delay(50);
+		BSP_TS_GetState(0, &ts);
+		if (!ts.TouchDetected)
+			continue;
 
-        if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnStandalone)) {
-        	g_Mode = MODE_FULL_DUPLEX;
-        	system_mode = 0;
-            WaitForTouchRelease();
-            return system_mode;
-        }
-        if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnRF)) {
-        	system_mode = 1;
-            WaitForTouchRelease();
-            return system_mode;
-        }
-    }
+		if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnStandalone)) {
+			g_Mode = MODE_FULL_DUPLEX;
+			system_mode = 0;
+			WaitForTouchRelease();
+			return system_mode;
+		}
+		if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnRF)) {
+			system_mode = 1;
+			WaitForTouchRelease();
+			return system_mode;
+		}
+	}
 }
+
+static void DrawAlarmButtonScreen(void) {
+	UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_SetFont(&Font24);
+	UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+	UTIL_LCD_DisplayStringAt(0, 30, (uint8_t*) "Mode", CENTER_MODE);
+	TouchZone_t z = { 50, 100, 380, 50 };
+	DrawButton(&z, "Set alarm", UTIL_LCD_COLOR_DARKBLUE,
+			UTIL_LCD_COLOR_WHITE);
+}
+
+void Set_Alarm_button_LCD(void) {
+	TS_InitOnce();
+
+	TouchZone_t btnAlarm = { 50, 100, 380, 50 };
+
+	DrawAlarmButtonScreen();
+
+	TS_State_t ts;
+	while (1) {
+		HAL_Delay(50);
+		BSP_TS_GetState(0, &ts);
+		if (!ts.TouchDetected)
+			continue;
+
+		if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnAlarm)) {
+			WaitForTouchRelease();
+			uint8_t result = Alarm_Type_LCD();
+			if (result == 1) {
+				return; /* Alarm was set — done */
+			}
+			/* Cancel came back — redraw this screen, keep looping */
+			DrawAlarmButtonScreen();
+		}
+	}
+}
+
+static void DrawAlarmTypeScreen(void) {
+	UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_SetFont(&Font24);
+	UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+	UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+	UTIL_LCD_DisplayStringAt(0, 20, (uint8_t*) "Alarm Type", CENTER_MODE);
+
+	TouchZone_t z;
+	z = (TouchZone_t ) { 50, 70, 380, 50 };
+	DrawButton(&z, "Match by day of the month", UTIL_LCD_COLOR_DARKBLUE,
+			UTIL_LCD_COLOR_WHITE);
+	z = (TouchZone_t ) { 50, 130, 380, 50 };
+	DrawButton(&z, "Match by weekday", UTIL_LCD_COLOR_DARKBLUE,
+			UTIL_LCD_COLOR_WHITE);
+	z = (TouchZone_t ) { 50, 190, 380, 50 };
+	DrawButton(&z, "Match time only", UTIL_LCD_COLOR_DARKBLUE,
+			UTIL_LCD_COLOR_WHITE);
+}
+
+uint8_t Alarm_Type_LCD(void) {
+	TS_InitOnce();
+
+	TouchZone_t btnDay = { 50, 70, 380, 50 };
+	TouchZone_t btnWeekday = { 50, 130, 380, 50 };
+	TouchZone_t btnJustTime = { 50, 190, 380, 50 };
+
+	DrawAlarmTypeScreen();
+
+	TS_State_t ts;
+	while (1) {
+		HAL_Delay(50);
+		BSP_TS_GetState(0, &ts);
+		if (!ts.TouchDetected)
+			continue;
+
+		uint8_t result = 0;
+
+		if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnDay)) {
+			WaitForTouchRelease();
+			result = Set_Day_Alarm_LCD();
+		} else if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnWeekday)) {
+			WaitForTouchRelease();
+			result = Set_Weekday_Alarm_LCD();
+		} else if (IsTouchInZone(ts.TouchX, ts.TouchY, &btnJustTime)) {
+			WaitForTouchRelease();
+			result = Set_Time_Alarm_LCD();
+		} else {
+			WaitForTouchRelease();
+			continue;
+		}
+
+		if (result == 1) {
+			return 1;  /* Alarm was set — unwind to caller */
+		}
+		/* result == 0 means Cancel — redraw this screen and keep looping */
+		DrawAlarmTypeScreen();
+	}
+}
+
+uint8_t Set_Weekday_Alarm_LCD(void) {
+	return 0;
+}
+
+uint8_t Set_Day_Alarm_LCD(void) {
+	return 0;
+}
+
+uint8_t Set_Time_Alarm_LCD(void) {
+	if (TS_InitOnce() != BSP_ERROR_NONE)
+		return 0;
+
+	RTC_AlarmTypeDef sAlarm = { 0 };
+	TS_State_t tsState;
+	RTC_TimeTypeDef sTime;
+
+	/* Read current RTC time as starting point */
+	HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+	/* GetDate must be called after GetTime to unlock the RTC shadow registers */
+	RTC_DateTypeDef sDate;
+	HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+
+	uint8_t hours = sTime.Hours;
+	uint8_t minutes = sTime.Minutes;
+	uint8_t seconds = sTime.Seconds;
+
+	/* Touch zones */
+	const TouchZone_t upBtn[3] = { { COL1_X, UP_Y, BTN_W, BTN_H }, { COL2_X,
+	UP_Y, BTN_W, BTN_H }, { COL3_X, UP_Y, BTN_W, BTN_H } };
+	const TouchZone_t downBtn[3] = { { COL1_X, DOWN_Y, BTN_W, BTN_H }, { COL2_X,
+	DOWN_Y, BTN_W, BTN_H }, { COL3_X, DOWN_Y, BTN_W, BTN_H } };
+	const TouchZone_t okBtn = { OK_X, ACTION_Y, 100, 40 };
+	const TouchZone_t cancelBtn = { CANCEL_X, ACTION_Y, 100, 40 };
+
+	/* Draw the time selection screen.
+	 * Reuses DrawSetTimeScreen — shows "Next" and "Cancel" buttons. */
+	DrawSetTimeScreen(hours, minutes, seconds);
+
+	while (1) {
+		HAL_Delay(50);
+		BSP_TS_GetState(0, &tsState);
+
+		if (!tsState.TouchDetected)
+			continue;
+
+		uint32_t tx = tsState.TouchX;
+		uint32_t ty = tsState.TouchY;
+
+		/* Up buttons */
+		if (IsTouchInZone(tx, ty, &upBtn[0])) {
+			hours = (hours + 1) % 24;
+			UpdateValueDisplay(COL1_X, hours, 0);
+		} else if (IsTouchInZone(tx, ty, &upBtn[1])) {
+			minutes = (minutes + 1) % 60;
+			UpdateValueDisplay(COL2_X, minutes, 0);
+		} else if (IsTouchInZone(tx, ty, &upBtn[2])) {
+			seconds = (seconds + 1) % 60;
+			UpdateValueDisplay(COL3_X, seconds, 0);
+		}
+		/* Down buttons */
+		else if (IsTouchInZone(tx, ty, &downBtn[0])) {
+			hours = (hours == 0) ? 23 : hours - 1;
+			UpdateValueDisplay(COL1_X, hours, 0);
+		} else if (IsTouchInZone(tx, ty, &downBtn[1])) {
+			minutes = (minutes == 0) ? 59 : minutes - 1;
+			UpdateValueDisplay(COL2_X, minutes, 0);
+		} else if (IsTouchInZone(tx, ty, &downBtn[2])) {
+			seconds = (seconds == 0) ? 59 : seconds - 1;
+			UpdateValueDisplay(COL3_X, seconds, 0);
+		}
+		/* "Next" → configure and set the alarm */
+		else if (IsTouchInZone(tx, ty, &okBtn)) {
+			WaitForTouchRelease();
+
+			/* Fill alarm time from user selection */
+			sAlarm.AlarmTime.Hours = hours;
+			sAlarm.AlarmTime.Minutes = minutes;
+			sAlarm.AlarmTime.Seconds = seconds;
+			sAlarm.AlarmTime.SubSeconds = 0;
+			sAlarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+			sAlarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_RESET;
+			sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
+
+			/* "Match time only, ignore date" →
+			 * mask out date, weekday — fire every day at HH:MM:SS */
+			sAlarm.AlarmMask = RTC_ALARMMASK_DATEWEEKDAY;
+			sAlarm.Alarm = RTC_ALARM_A;
+
+			if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BIN) != HAL_OK) {
+				Error_Handler();
+			}
+
+			/* Confirmation splash */
+			UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+			UTIL_LCD_SetFont(&Font24);
+			UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+			UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_GREEN);
+			char msg[32];
+			sprintf(msg, "Alarm set: %02d:%02d:%02d", hours, minutes, seconds);
+			UTIL_LCD_DisplayStringAt(0, 110, (uint8_t*) msg, CENTER_MODE);
+			UTIL_LCD_DisplayStringAt(0, 140, (uint8_t*) "Every day", CENTER_MODE);
+			HAL_Delay(1000);
+			return 1;
+		}
+		/* "Cancel" → go back without setting alarm */
+		else if (IsTouchInZone(tx, ty, &cancelBtn)) {
+			WaitForTouchRelease();
+			return 0;
+		}
+
+		/* Debounce: wait for finger lift before next input */
+		WaitForTouchRelease();
+	}
+}
+

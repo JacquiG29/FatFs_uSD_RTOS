@@ -195,6 +195,11 @@ void AUDIO_OUT_SAIx_DMAx_IRQHandler(void)
   BSP_AUDIO_OUT_IRQHandler(0);
 }
 
+void RTC_Alarm_IRQHandler(void)
+{
+  HAL_RTC_AlarmIRQHandler(&hrtc);
+}
+
 void EXTI15_10_IRQHandler(void)
 {
   BSP_PB_IRQHandler(BUTTON_USER);

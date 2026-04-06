@@ -11,5 +11,5 @@
 ../Application/User/Core/rtc_functions.c:310:6:Print_Alarm	3
 ../Application/User/Core/rtc_functions.c:340:6:Show_Menu	1
 ../Application/User/Core/rtc_functions.c:354:6:HAL_RTC_AlarmAEventCallback	1
-../Application/User/Core/rtc_functions.c:360:16:FS_WriteAlarm	5
-../Application/User/Core/rtc_functions.c:398:16:FS_ReadAlarmList	5
+../Application/User/Core/rtc_functions.c:361:16:FS_WriteAlarm	5
+../Application/User/Core/rtc_functions.c:399:16:FS_ReadAlarmList	5

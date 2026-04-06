@@ -35,7 +35,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-char version[10] = "1.3.5";
+char version[10] = "1.3.6";
 uint8_t system_mode = 2; //Standalone: 0, Distributed node: 1, Not set: 2
 UART_HandleTypeDef huart3;
 RTC_HandleTypeDef hrtc;
@@ -47,10 +47,11 @@ volatile uint8_t g_Mode = MODE_PLAY; /* Change to MODE_PASSTHROUGH, MODE_RECORD,
 #define RECORD_DURATION_SECONDS 15
 const TCHAR *audio_play = "PIANO1.WAV";
 /* WAV FILES NAMES:
- * ESS
+ * ESS_F
  * SIN_1KL
  * SIN_1KR
  * SIN_1K
+ * PIANO1
  * */
 /* WAV Header Structure */
 typedef struct {
@@ -292,6 +293,7 @@ int main(void) {
 	/* Initialize ARD GPIOs + EXTI — now that system_mode is known.
 	 * Skipped entirely in standalone mode (pins unconnected). */
 	MX_GPIO_Init();
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 	UART_Print("Entering main loop...\r\n");
 
 	SDQueueHandle = osMessageQueueNew(msg_count, msg_size, NULL);
@@ -433,6 +435,13 @@ static void MX_GPIO_Init(void) {
 	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(ARD_D2D4_PORT, &GPIO_InitStruct);
+
+	/* ----- ARD_D6 (PD15) as output -----*/
+	GPIO_InitStruct.Pin = ARD_D6_PIN;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(ARD_D6_PORT, &GPIO_InitStruct);
 
 	/* ----- ARD_D8 (PE3) as EXTI, rising edge -----
 	 * Uses dedicated EXTI3_IRQn — no conflict with SD detect (PF5/EXTI5) */
@@ -671,6 +680,7 @@ static void SD_Write_Task(void *argument) {
 
 			g_FileIndex++;
 			g_SDReady = 0;
+			HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 		}
 		/* ================= PLAYBACK MODE ================= */
 		else if (g_Mode == MODE_PLAY) {
@@ -715,6 +725,7 @@ static void SD_Write_Task(void *argument) {
 
 			f_close(&File_Play);
 			UART_Print("Playback complete.\r\n");
+			HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 			BSP_LED_On(LED_OK);
 		} /* ================= FULL DUPLEX MODE ================= */
 		else if (g_Mode == MODE_FULL_DUPLEX) {
@@ -974,8 +985,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 static void System_Controller_Task(void *argument) {
 	(void) argument;
 
+	/* Let user configure alarm via LCD before entering wait loop */
+	if (system_mode == 0) {
+		Set_Alarm_button_LCD();
+		/* Show confirmation screen, then clear for normal operation */
+		UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+		UTIL_LCD_SetFont(&Font16);
+		UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+		UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+		UTIL_LCD_DisplayStringAt(0, 120, (uint8_t*) "Waiting for alarm",
+				CENTER_MODE);
+	}
+
 	for (;;) {
-		/* Block until EXTI semaphore is released */
+		/* Block until EXTI or RTC alarm releases the semaphore */
 		osSemaphoreAcquire(ExtiSemaphoreHandle, osWaitForever);
 
 		/* Ignore commands while recording/playing is in progress */
@@ -993,14 +1016,21 @@ static void System_Controller_Task(void *argument) {
 			switch (config) {
 			case 0x01: /* ARD_D4=0, ARD_D2=1 → RECORD */
 				g_Mode = MODE_RECORD;
+				HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
 				g_ButtonPressed = 1;
 				UART_Print("EXTI: Start recording\r\n");
 				break;
 
 			case 0x02: /* ARD_D4=1, ARD_D2=0 → PLAY */
 				g_Mode = MODE_PLAY;
+				HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
 				g_ButtonPressed = 1;
 				UART_Print("EXTI: Start Playing\r\n");
+				break;
+			case 0x03: /* ARD_D4=1, ARD_D2=1 → FULL_DUPLEX */
+				g_Mode = MODE_FULL_DUPLEX;
+				g_ButtonPressed = 1;
+				UART_Print("EXTI: Start fullduplex\r\n");
 				break;
 
 			default:
@@ -1012,8 +1042,8 @@ static void System_Controller_Task(void *argument) {
 		} else if (system_mode == 0 && g_AlarmFlag) {
 			    g_AlarmFlag = 0;
 			    g_Mode = MODE_FULL_DUPLEX;
+			    BSP_LED_Off(LED_ERROR);
 			    g_ButtonPressed = 1;
-
 		}
 		g_ExtiFlag = 0;
 	}

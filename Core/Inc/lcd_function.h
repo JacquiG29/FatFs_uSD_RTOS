@@ -26,5 +26,11 @@ uint8_t Set_DateTime_LCD(void);
 void Standalone_Menu(char version[10]);
 void RF_Menu(char version[10]);
 uint8_t Set_Mode_LCD(void);
+
+uint8_t Set_Day_Alarm_LCD(void);
+uint8_t Set_Weekday_Alarm_LCD(void);
+uint8_t Set_Time_Alarm_LCD(void);
+uint8_t Alarm_Type_LCD(void);
+void Set_Alarm_button_LCD(void);
 extern volatile uint8_t g_Mode;
 #endif /* APPLICATION_USER_CORE_LCD_FUNCTION_H_ */

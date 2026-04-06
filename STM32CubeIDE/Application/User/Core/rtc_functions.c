@@ -84,7 +84,7 @@ void MX_RTC_Init(void) {
 	HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0xBEBE);
 	HAL_PWR_DisableBkUpAccess();
 
-	HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 0, 0);
+	HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 6, 0); /* Must be >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5) for FreeRTOS API calls */
 	HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
 	/* USER CODE END RTC_Init 2 */
 
@@ -114,7 +114,7 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef *hrtc) {
 		/* Peripheral clock enable */
 		__HAL_RCC_RTC_ENABLE();
 		/* RTC interrupt Init */
-		HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 0, 0);
+		HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 6, 0); /* Must be >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5) for FreeRTOS API calls */
 		HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
 		/* USER CODE BEGIN RTC_MspInit 1 */
 
@@ -352,9 +352,10 @@ void Show_Menu(void) {
 }
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
-	BSP_LED_On(LED_OK);
+	BSP_LED_On(LED_ERROR);
+	//HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
     g_AlarmFlag = 1;
-    osSemaphoreRelease(ExtiSemaphoreHandle);  // same semaphore, same task
+    osSemaphoreRelease(ExtiSemaphoreHandle);
 }
 
 static int32_t FS_WriteAlarm(void) {

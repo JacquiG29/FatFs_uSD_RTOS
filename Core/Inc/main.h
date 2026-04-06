@@ -42,6 +42,9 @@ extern "C" {
 #include "audio_record.h" /* Provides Audio_LoopbackInit() and buffers */
 #include "rtc_functions.h"
 #include "lcd_function.h"
+
+#define ARD_D6_PIN    GPIO_PIN_15   /* PD15 - output */
+#define ARD_D6_PORT   GPIOD
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

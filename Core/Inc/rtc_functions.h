@@ -18,6 +18,8 @@
 
 extern RTC_HandleTypeDef hrtc;
 extern UART_HandleTypeDef huart3;
+extern volatile uint8_t g_AlarmFlag;
+extern osSemaphoreId_t ExtiSemaphoreHandle;
 
 
 // Pull in the global FatFs variables defined in app_fatfs.c

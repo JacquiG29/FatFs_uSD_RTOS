@@ -1,9 +1,11 @@
 #include "rtc_functions.h"
+extern volatile uint8_t g_AlarmFlag;
+extern osSemaphoreId_t ExtiSemaphoreHandle;
 
 void SystemClock_ConfigRTC(void) {
 }
 
-static void MX_RTC_Init(void) {
+void MX_RTC_Init(void) {
 
 	/* USER CODE BEGIN RTC_Init 0 */
 
@@ -36,6 +38,7 @@ static void MX_RTC_Init(void) {
 	if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) == 0xBEBE) {
 		// The RTC is already running perfectly.
 		// We "return" right now to exit the function BEFORE it resets the time below.
+		flag_set_time = 0;
 		return;
 	}
 	/* USER CODE END Check_RTC_BKUP */
@@ -50,10 +53,10 @@ static void MX_RTC_Init(void) {
 	if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
 		Error_Handler();
 	}
-	sDate.WeekDay = RTC_WEEKDAY_TUESDAY;
-	sDate.Month = RTC_MONTH_MARCH;
-	sDate.Date = 0x10;
-	sDate.Year = 0x25;
+	sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+	sDate.Month = RTC_MONTH_JANUARY;
+	sDate.Date = 0x01;
+	sDate.Year = 0x00;
 	if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {
 		Error_Handler();
 	}
@@ -81,7 +84,7 @@ static void MX_RTC_Init(void) {
 	HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0xBEBE);
 	HAL_PWR_DisableBkUpAccess();
 
-	HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 0, 0);
+	HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 6, 0); /* Must be >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5) for FreeRTOS API calls */
 	HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
 	/* USER CODE END RTC_Init 2 */
 
@@ -111,7 +114,7 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef *hrtc) {
 		/* Peripheral clock enable */
 		__HAL_RCC_RTC_ENABLE();
 		/* RTC interrupt Init */
-		HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 0, 0);
+		HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 6, 0); /* Must be >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5) for FreeRTOS API calls */
 		HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
 		/* USER CODE BEGIN RTC_MspInit 1 */
 
@@ -150,7 +153,7 @@ void UART_Receive(uint8_t *buffer, uint16_t size) {
 	buffer[size] = '\0';
 }
 
-void Set_RTC_Time(void) {
+uint8_t Set_RTC_Time(void) {
 	RTC_TimeTypeDef sTime = { 0 };
 	uint8_t buffer[3];
 
@@ -177,9 +180,10 @@ void Set_RTC_Time(void) {
 	}
 	HAL_UART_Transmit(&huart3, (uint8_t*) "\n\rTime is set!\n\r ", 16,
 	HAL_MAX_DELAY);
+	return 1;
 }
 
-void Set_RTC_Date(void) {
+uint8_t Set_RTC_Date(void) {
 	RTC_DateTypeDef sDate = { 0 };
 	uint8_t buffer[3];
 
@@ -208,16 +212,16 @@ void Set_RTC_Date(void) {
 	}
 	HAL_UART_Transmit(&huart3, (uint8_t*) "\n\rDate is set!\n\r ", 16,
 	HAL_MAX_DELAY);
-
+	return 1;
 }
 
-void Set_RTC_Alarm(void) {
+uint8_t Set_RTC_Alarm(void) {
 	RTC_AlarmTypeDef sAlarm = { 0 };
 	uint8_t buffer[3];
 
 	// --- Time ---
 	HAL_UART_Transmit(&huart3, (uint8_t*) "Enter Alarm Hours (00-23): ", 27,
-			HAL_MAX_DELAY);
+	HAL_MAX_DELAY);
 	UART_Receive(buffer, 2);
 	sAlarm.AlarmTime.Hours = (buffer[0] - '0') * 10 + (buffer[1] - '0');
 
@@ -241,7 +245,7 @@ void Set_RTC_Alarm(void) {
 
 	case '1':  // match by day of month
 		HAL_UART_Transmit(&huart3, (uint8_t*) "\n\rEnter Date (01-31): ", 21,
-				HAL_MAX_DELAY);
+		HAL_MAX_DELAY);
 		UART_Receive(buffer, 2);
 		sAlarm.AlarmDateWeekDay = (buffer[0] - '0') * 10 + (buffer[1] - '0');
 		sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
@@ -276,7 +280,7 @@ void Set_RTC_Alarm(void) {
 		Error_Handler();
 	}
 	HAL_UART_Transmit(&huart3, (uint8_t*) "\n\rAlarm is set!\n\r", 17,
-			HAL_MAX_DELAY);
+	HAL_MAX_DELAY);
 }
 
 void Print_Time(void) {
@@ -313,23 +317,23 @@ void Print_Alarm(void) {
 	sprintf(buffer, "Alarm Time: %02d:%02d:%02d\n\r", sAlarm.AlarmTime.Hours,
 			sAlarm.AlarmTime.Minutes, sAlarm.AlarmTime.Seconds);
 	HAL_UART_Transmit(&huart3, (uint8_t*) buffer, strlen(buffer),
-			HAL_MAX_DELAY);
+	HAL_MAX_DELAY);
 
 	// Print date mode
 	if (sAlarm.AlarmMask & RTC_ALARMMASK_DATEWEEKDAY) {
 		// Bit is set -> date/weekday is masked out -> time-only mode
 		HAL_UART_Transmit(&huart3, (uint8_t*) "Match: Time only\n\r", 18,
-				HAL_MAX_DELAY);
+		HAL_MAX_DELAY);
 
 	} else if (sAlarm.AlarmDateWeekDaySel == RTC_ALARMDATEWEEKDAYSEL_WEEKDAY) {
 		sprintf(buffer, "Match: Weekday %d\n\r", sAlarm.AlarmDateWeekDay);
 		HAL_UART_Transmit(&huart3, (uint8_t*) buffer, strlen(buffer),
-				HAL_MAX_DELAY);
+		HAL_MAX_DELAY);
 
 	} else {
 		sprintf(buffer, "Match: Date %02d\n\r", sAlarm.AlarmDateWeekDay);
 		HAL_UART_Transmit(&huart3, (uint8_t*) buffer, strlen(buffer),
-				HAL_MAX_DELAY);
+		HAL_MAX_DELAY);
 	}
 }
 
@@ -348,79 +352,89 @@ void Show_Menu(void) {
 }
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
-	BSP_LED_On(LED_OK);
+	BSP_LED_On(LED_ERROR);
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
+    g_AlarmFlag = 1;
+    osSemaphoreRelease(ExtiSemaphoreHandle);
 }
 
 static int32_t FS_WriteAlarm(void) {
-    FRESULT res;
-    uint32_t byteswritten;
-    char wtext[50];
-    RTC_AlarmTypeDef sAlarm;
+	FRESULT res;
+	uint32_t byteswritten;
+	char wtext[50];
+	RTC_AlarmTypeDef sAlarm;
 
-    // Get the current Alarm A configuration
-    HAL_RTC_GetAlarm(&hrtc, &sAlarm, RTC_ALARM_A, RTC_FORMAT_BIN);
+	// Get the current Alarm A configuration
+	HAL_RTC_GetAlarm(&hrtc, &sAlarm, RTC_ALARM_A, RTC_FORMAT_BIN);
 
-    //Format it into a string with a newline character at the end
-    sprintf(wtext, "%02d %02d:%02d:%02d\n",
-            sAlarm.AlarmDateWeekDay,
-            sAlarm.AlarmTime.Hours,
-            sAlarm.AlarmTime.Minutes,
-            sAlarm.AlarmTime.Seconds);
+	//Format it into a string with a newline character at the end
+	sprintf(wtext, "%02d %02d:%02d:%02d\n", sAlarm.AlarmDateWeekDay,
+			sAlarm.AlarmTime.Hours, sAlarm.AlarmTime.Minutes,
+			sAlarm.AlarmTime.Seconds);
 
-    // Mount the SD Card and open the file
-    if(f_mount(&SDFatFS, (TCHAR const*)SDPath, 0) == FR_OK) {
+	// Mount the SD Card and open the file
+	if (f_mount(&SDFatFS, (TCHAR const*) SDPath, 0) == FR_OK) {
 
-        // Use FA_OPEN_APPEND to add to the list instead of overwriting it
-        if(f_open(&SDFile, "ALARMS.TXT", FA_OPEN_APPEND | FA_WRITE) == FR_OK) {
+		// Use FA_OPEN_APPEND to add to the list instead of overwriting it
+		if (f_open(&SDFile, "ALARMS.TXT", FA_OPEN_APPEND | FA_WRITE) == FR_OK) {
 
-            // Write the string
-            res = f_write(&SDFile, wtext, strlen(wtext), (void *)&byteswritten);
-            f_close(&SDFile);
+			// Write the string
+			res = f_write(&SDFile, wtext, strlen(wtext), (void*) &byteswritten);
+			f_close(&SDFile);
 
-            if((res == FR_OK) && (byteswritten > 0)) {
-                HAL_UART_Transmit(&huart3, (uint8_t*)"\r\nAlarm saved to ALARMS.TXT\r\n", 30, HAL_MAX_DELAY);
-                return 0; // Success
-            }
-        }
-    }
+			if ((res == FR_OK) && (byteswritten > 0)) {
+				HAL_UART_Transmit(&huart3,
+						(uint8_t*) "\r\nAlarm saved to ALARMS.TXT\r\n", 30,
+						HAL_MAX_DELAY);
+				return 0; // Success
+			}
+		}
+	}
 
-    HAL_UART_Transmit(&huart3, (uint8_t*)"\r\nFailed to write to SD Card.\r\n", 31, HAL_MAX_DELAY);
-    return -1; // Error
+	HAL_UART_Transmit(&huart3, (uint8_t*) "\r\nFailed to write to SD Card.\r\n",
+			31, HAL_MAX_DELAY);
+	return -1; // Error
 }
 
 static int32_t FS_ReadAlarmList(void) {
-    char line[50];
-    char uart_buf[100];
-    int day, hour, min, sec;
+	char line[50];
+	char uart_buf[100];
+	int day, hour, min, sec;
 
-    if(f_mount(&SDFatFS, (TCHAR const*)SDPath, 0) == FR_OK) {
+	if (f_mount(&SDFatFS, (TCHAR const*) SDPath, 0) == FR_OK) {
 
-        // Open the file with Read access
-        if(f_open(&SDFile, "ALARMS.TXT", FA_READ) == FR_OK) {
+		// Open the file with Read access
+		if (f_open(&SDFile, "ALARMS.TXT", FA_READ) == FR_OK) {
 
-            HAL_UART_Transmit(&huart3, (uint8_t*)"\r\n--- SD Card Alarm List ---\r\n", 30, HAL_MAX_DELAY);
+			HAL_UART_Transmit(&huart3,
+					(uint8_t*) "\r\n--- SD Card Alarm List ---\r\n", 30,
+					HAL_MAX_DELAY);
 
-            // Read the file line by line until we hit the end
-            while (f_gets(line, sizeof(line), &SDFile) != NULL) {
+			// Read the file line by line until we hit the end
+			while (f_gets(line, sizeof(line), &SDFile) != NULL) {
 
-                // Extract the integers from our "DD HH:MM:SS" format
-                if (sscanf(line, "%d %d:%d:%d", &day, &hour, &min, &sec) == 4) {
+				// Extract the integers from our "DD HH:MM:SS" format
+				if (sscanf(line, "%d %d:%d:%d", &day, &hour, &min, &sec) == 4) {
 
-                    // --- NEXT-IN-LINE LOGIC GOES HERE ---
-                    // Right now, it just prints the alarm to UART.
-                    // Later, you can load these into a struct array, sort them,
-                    // and push the earliest one to Alarm A.
+					// --- NEXT-IN-LINE LOGIC GOES HERE ---
+					// Right now, it just prints the alarm to UART.
+					// Later, you can load these into a struct array, sort them,
+					// and push the earliest one to Alarm A.
 
-                    sprintf(uart_buf, "Parsed Alarm -> Day: %02d, Time: %02d:%02d:%02d\r\n", day, hour, min, sec);
-                    HAL_UART_Transmit(&huart3, (uint8_t*)uart_buf, strlen(uart_buf), HAL_MAX_DELAY);
-                }
-            }
+					sprintf(uart_buf,
+							"Parsed Alarm -> Day: %02d, Time: %02d:%02d:%02d\r\n",
+							day, hour, min, sec);
+					HAL_UART_Transmit(&huart3, (uint8_t*) uart_buf,
+							strlen(uart_buf), HAL_MAX_DELAY);
+				}
+			}
 
-            f_close(&SDFile); // Always close the file
-            return 0; // Success
-        }
-    }
+			f_close(&SDFile); // Always close the file
+			return 0; // Success
+		}
+	}
 
-    HAL_UART_Transmit(&huart3, (uint8_t*)"\r\nCannot read ALARMS.TXT\r\n", 26, HAL_MAX_DELAY);
-    return -1; // Error
+	HAL_UART_Transmit(&huart3, (uint8_t*) "\r\nCannot read ALARMS.TXT\r\n", 26,
+			HAL_MAX_DELAY);
+	return -1; // Error
 }
