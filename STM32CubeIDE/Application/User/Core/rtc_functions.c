@@ -1,6 +1,8 @@
 #include "rtc_functions.h"
 extern volatile uint8_t g_AlarmFlag;
 extern osSemaphoreId_t ExtiSemaphoreHandle;
+uint32_t NextAlarmFileOffset = 0;
+uint8_t g_CurrentAlarmType = 0;
 
 void SystemClock_ConfigRTC(void) {
 }
@@ -34,7 +36,7 @@ void MX_RTC_Init(void) {
 	}
 
 	/* USER CODE BEGIN Check_RTC_BKUP */
-	//Check if RTC is in the backup register
+	// Check if RTC is in the backup register
 	if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) == 0xBEBE) {
 		// The RTC is already running perfectly.
 		// We "return" right now to exit the function BEFORE it resets the time below.
@@ -87,7 +89,6 @@ void MX_RTC_Init(void) {
 	HAL_NVIC_SetPriority(RTC_Alarm_IRQn, 6, 0); /* Must be >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5) for FreeRTOS API calls */
 	HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
 	/* USER CODE END RTC_Init 2 */
-
 }
 
 /**
@@ -119,9 +120,7 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef *hrtc) {
 		/* USER CODE BEGIN RTC_MspInit 1 */
 
 		/* USER CODE END RTC_MspInit 1 */
-
 	}
-
 }
 
 /**
@@ -144,7 +143,6 @@ void HAL_RTC_MspDeInit(RTC_HandleTypeDef *hrtc) {
 
 		/* USER CODE END RTC_MspDeInit 1 */
 	}
-
 }
 
 void UART_Receive(uint8_t *buffer, uint16_t size) {
@@ -243,7 +241,7 @@ uint8_t Set_RTC_Alarm(void) {
 
 	switch (buffer[0]) {
 
-	case '1':  // match by day of month
+	case '1': // match by day of month
 		HAL_UART_Transmit(&huart3, (uint8_t*) "\n\rEnter Date (01-31): ", 21,
 		HAL_MAX_DELAY);
 		UART_Receive(buffer, 2);
@@ -252,7 +250,7 @@ uint8_t Set_RTC_Alarm(void) {
 		sAlarm.AlarmMask = RTC_ALARMMASK_NONE;
 		break;
 
-	case '2':  // match by weekday
+	case '2': // match by weekday
 		HAL_UART_Transmit(&huart3,
 				(uint8_t*) "\n\rEnter Weekday (1=Mon, 7=Sun): ", 32,
 				HAL_MAX_DELAY);
@@ -262,9 +260,9 @@ uint8_t Set_RTC_Alarm(void) {
 		sAlarm.AlarmMask = RTC_ALARMMASK_NONE;
 		break;
 
-	case '3':  // match time only, ignore date
+	case '3': // match time only, ignore date
 	default:
-		sAlarm.AlarmDateWeekDay = 0x01;  // ignored
+		sAlarm.AlarmDateWeekDay = 0x01; // ignored
 		sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
 		sAlarm.AlarmMask = RTC_ALARMMASK_DATEWEEKDAY;
 		break;
@@ -324,12 +322,10 @@ void Print_Alarm(void) {
 		// Bit is set -> date/weekday is masked out -> time-only mode
 		HAL_UART_Transmit(&huart3, (uint8_t*) "Match: Time only\n\r", 18,
 		HAL_MAX_DELAY);
-
 	} else if (sAlarm.AlarmDateWeekDaySel == RTC_ALARMDATEWEEKDAYSEL_WEEKDAY) {
 		sprintf(buffer, "Match: Weekday %d\n\r", sAlarm.AlarmDateWeekDay);
 		HAL_UART_Transmit(&huart3, (uint8_t*) buffer, strlen(buffer),
 		HAL_MAX_DELAY);
-
 	} else {
 		sprintf(buffer, "Match: Date %02d\n\r", sAlarm.AlarmDateWeekDay);
 		HAL_UART_Transmit(&huart3, (uint8_t*) buffer, strlen(buffer),
@@ -352,34 +348,64 @@ void Show_Menu(void) {
 }
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
-	BSP_LED_On(LED_ERROR);
-	//HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
-    g_AlarmFlag = 1;
-    osSemaphoreRelease(ExtiSemaphoreHandle);
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
+	g_AlarmFlag = 1;
+	osSemaphoreRelease(ExtiSemaphoreHandle);
 }
 
-static int32_t FS_WriteAlarm(void) {
+// Function to save the alarm set in the screen to the SD Card
+// Here I can add the xtimes of exe and intervals
+int32_t FS_WriteAlarm(uint8_t xtimes, uint8_t intervalMinutes,
+		uint8_t intervalHours) {
 	FRESULT res;
 	uint32_t byteswritten;
 	char wtext[50];
 	RTC_AlarmTypeDef sAlarm;
+	extern uint8_t g_AlarmWeekdayMask;
 
 	// Get the current Alarm A configuration
 	HAL_RTC_GetAlarm(&hrtc, &sAlarm, RTC_ALARM_A, RTC_FORMAT_BIN);
-
-	//Format it into a string with a newline character at the end
-	sprintf(wtext, "%02d %02d:%02d:%02d\n", sAlarm.AlarmDateWeekDay,
-			sAlarm.AlarmTime.Hours, sAlarm.AlarmTime.Minutes,
-			sAlarm.AlarmTime.Seconds);
+	// Save the original start time!
+	uint8_t start_hours = sAlarm.AlarmTime.Hours;
+	uint8_t start_minutes = sAlarm.AlarmTime.Minutes;
+	uint8_t days = sAlarm.AlarmDateWeekDay;
+	uint8_t weekday;
 
 	// Mount the SD Card and open the file
 	if (f_mount(&SDFatFS, (TCHAR const*) SDPath, 0) == FR_OK) {
 
 		// Use FA_OPEN_APPEND to add to the list instead of overwriting it
 		if (f_open(&SDFile, "ALARMS.TXT", FA_OPEN_APPEND | FA_WRITE) == FR_OK) {
+			// Write the string multiple times
 
-			// Write the string
-			res = f_write(&SDFile, wtext, strlen(wtext), (void*) &byteswritten);
+			for (uint8_t j = 0; j < 7; j++) {
+				if ((g_AlarmWeekdayMask & (1 << j)) != 0) {
+					weekday = j + 1;
+					// Reset time for each new day
+					uint8_t hours = start_hours;
+					uint8_t minutes = start_minutes;
+
+					for (uint8_t i = 0; i < xtimes; i++) {
+						sprintf(wtext, "%d %d %02d %02d:%02d:%02d\n", g_CurrentAlarmType,0, weekday,
+								hours, minutes, sAlarm.AlarmTime.Seconds);
+						res = f_write(&SDFile, wtext, strlen(wtext),
+								(void*) &byteswritten);
+						minutes += intervalMinutes;
+						while (minutes >= 60) {
+							minutes -= 60; // Keep the remainder
+							hours += 1;    // Carry over to the hour
+						}
+
+						hours += intervalHours;
+						while (hours >= 24) {
+							hours -= 24;   // Keep the remainder
+							days += 1;     // Carry over to the day
+						}
+
+					}
+				}
+			}
+
 			f_close(&SDFile);
 
 			if ((res == FR_OK) && (byteswritten > 0)) {
@@ -396,45 +422,137 @@ static int32_t FS_WriteAlarm(void) {
 	return -1; // Error
 }
 
-static int32_t FS_ReadAlarmList(void) {
+// Helper function to flatten time into a single integer
+static uint32_t FlattenTime(uint8_t date, uint8_t hours, uint8_t minutes,
+		uint8_t seconds) {
+	return (date * 86400) + (hours * 3600) + (minutes * 60) + seconds;
+}
+
+int32_t FS_ReadAlarmList(void) {
 	char line[50];
-	char uart_buf[100];
-	int day, hour, min, sec;
+	int status, weekday, hour, min, sec;
+	uint32_t current_line_offset = 0; // Track where we are in the file
+
+	RTC_TimeTypeDef currentTime;
+	RTC_DateTypeDef currentDate;
+
+	uint32_t current_flat_time = 0;
+	uint32_t alarm_flat_time = 0;
+
+	// Track the closest alarm
+	uint32_t closest_future_time = 0xFFFFFFFF; // Start with max possible value
+	int next_day = -1, next_hour = -1, next_min = -1, next_sec = -1;
+	int type;//one shot or weekly alarm
+	// Get the current exact time
+	HAL_RTC_GetTime(&hrtc, &currentTime, RTC_FORMAT_BIN);
+	HAL_RTC_GetDate(&hrtc, &currentDate, RTC_FORMAT_BIN);
+	current_flat_time = FlattenTime(0, currentTime.Hours, currentTime.Minutes,
+			currentTime.Seconds);
+
+	// Open the file on the SD Card
+	if (f_mount(&SDFatFS, (TCHAR const*) SDPath, 0) == FR_OK) {
+		if (f_open(&SDFile, "ALARMS.TXT", FA_READ) == FR_OK) {
+
+			while (!f_eof(&SDFile)) {
+				// Save the exact byte offset BEFORE reading the line
+				current_line_offset = f_tell(&SDFile);
+
+				if (f_gets(line, sizeof(line), &SDFile) != NULL) {
+					// Notice the "%d" at the start to catch the status flag
+					int n = sscanf(line, "%d %d %d %d:%d:%d", &type, &status, &weekday,
+							&hour, &min, &sec);
+					//printf("line='%s' n=%d\r\n", line, n);
+					if (n == 6) {
+						// ONLY process this alarm if the status is 0 (Pending)
+						if (status == 0) {
+							// How many days in the future is this alarm?
+							int days_ahead = weekday - currentDate.WeekDay;
+
+							//Flatten the alarm time to check if it has already passed today
+							uint32_t alarm_time_only = FlattenTime(0, hour, min,sec);
+							//set alarm for next week
+							if (days_ahead < 0
+									|| (days_ahead == 0
+											&& alarm_time_only
+													<= current_flat_time)) {
+								days_ahead += 7;
+							}
+
+							alarm_flat_time = FlattenTime(days_ahead, hour, min,
+									sec);
+
+							if (alarm_flat_time < closest_future_time) {
+								closest_future_time = alarm_flat_time;
+								NextAlarmFileOffset = current_line_offset;
+								next_day = weekday;
+								next_hour = hour;
+								next_min = min;
+								next_sec = sec;
+							}
+						}
+					}
+				}
+			}
+			f_close(&SDFile);
+
+			// Did we find a valid future alarm? Set it in the hardware
+			if (next_day != -1) {
+				RTC_AlarmTypeDef sAlarm = { 0 };
+				sAlarm.AlarmTime.Hours = next_hour;
+				sAlarm.AlarmTime.Minutes = next_min;
+				sAlarm.AlarmTime.Seconds = next_sec;
+				sAlarm.AlarmDateWeekDay = next_day;
+
+				sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_WEEKDAY;
+				sAlarm.AlarmMask = RTC_ALARMMASK_NONE; // Match exact day and time
+				sAlarm.Alarm = RTC_ALARM_A;
+
+				if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BIN)
+						== HAL_OK) {
+					char msg[60];
+					sprintf(msg,
+							"\r\nNext Alarm set for Day %02d at %02d:%02d:%02d\r\n",
+							next_day, next_hour, next_min, next_sec);
+					HAL_UART_Transmit(&huart3, (uint8_t*) msg, strlen(msg),
+					HAL_MAX_DELAY);
+					return 0; // Success
+				}
+			} else {
+				HAL_UART_Transmit(&huart3,
+						(uint8_t*) "\r\nNo future alarms found in file.\r\n",
+						35, HAL_MAX_DELAY);
+			}
+		}
+	}
+	return -1; // Error
+}
+
+int32_t FS_MarkAlarmExecuted(void) {
+	FRESULT res;
+	uint32_t byteswritten;
+	char executed_flag = '1';
 
 	if (f_mount(&SDFatFS, (TCHAR const*) SDPath, 0) == FR_OK) {
 
-		// Open the file with Read access
-		if (f_open(&SDFile, "ALARMS.TXT", FA_READ) == FR_OK) {
+		// Open with FA_WRITE so we can modify the file
+		if (f_open(&SDFile, "ALARMS.TXT", FA_WRITE | FA_OPEN_EXISTING)
+				== FR_OK) {
 
-			HAL_UART_Transmit(&huart3,
-					(uint8_t*) "\r\n--- SD Card Alarm List ---\r\n", 30,
-					HAL_MAX_DELAY);
+			// Fast-forward the file pointer to the exact byte of our target alarm
+			f_lseek(&SDFile, NextAlarmFileOffset);
 
-			// Read the file line by line until we hit the end
-			while (f_gets(line, sizeof(line), &SDFile) != NULL) {
+			// Overwrite the '0' with a '1'
+			res = f_write(&SDFile, &executed_flag, 1, (void*) &byteswritten);
 
-				// Extract the integers from our "DD HH:MM:SS" format
-				if (sscanf(line, "%d %d:%d:%d", &day, &hour, &min, &sec) == 4) {
+			f_close(&SDFile);
 
-					// --- NEXT-IN-LINE LOGIC GOES HERE ---
-					// Right now, it just prints the alarm to UART.
-					// Later, you can load these into a struct array, sort them,
-					// and push the earliest one to Alarm A.
-
-					sprintf(uart_buf,
-							"Parsed Alarm -> Day: %02d, Time: %02d:%02d:%02d\r\n",
-							day, hour, min, sec);
-					HAL_UART_Transmit(&huart3, (uint8_t*) uart_buf,
-							strlen(uart_buf), HAL_MAX_DELAY);
-				}
+			if (res == FR_OK && byteswritten == 1) {
+				HAL_UART_Transmit(&huart3,
+						(uint8_t*) "\r\nAlarm marked as executed!\r\n", 29,
+						HAL_MAX_DELAY);
+				return 0; // Success
 			}
-
-			f_close(&SDFile); // Always close the file
-			return 0; // Success
 		}
 	}
-
-	HAL_UART_Transmit(&huart3, (uint8_t*) "\r\nCannot read ALARMS.TXT\r\n", 26,
-			HAL_MAX_DELAY);
 	return -1; // Error
 }

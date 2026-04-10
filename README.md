@@ -377,3 +377,17 @@ Non-cacheable configuration is **critical** - without it, the CPU cache and DMA 
 | Semaphore released | Wakes SD task to refill ring buffer from SD |
 | End of file (`bytesRead < 4096`) | SD task waits for buffer to drain, then closes file |
 | Playback complete | SD task waits for next button press to replay `TEST.WAV` |
+
+## Alarms
+[STATUS] [DD] [HH]:[MM]:[SS]
+
+0 = Pending
+1 = Executed
+
+ALARMS.TXT Example:
+```
+  1 10 08:00:00  <- (Already ran)
+  1 11 14:30:00  <- (Already ran)
+  0 12 09:15:00  <- (Next to run)
+  0 15 20:00:00  <- (Pending)
+```

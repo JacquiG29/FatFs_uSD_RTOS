@@ -37,6 +37,8 @@ void Print_Date(void);
 void Print_Alarm(void);
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc);
 void UART_Receive(uint8_t *data, uint16_t size);
-static int32_t FS_WriteAlarm(void);
-static int32_t FS_ReadAlarmList(void);
+int32_t FS_WriteAlarm(uint8_t xtimes, uint8_t intervalMinutes, uint8_t intervalHours);
+//static int32_t FS_WriteAlarm(void);
+int32_t FS_ReadAlarmList(void);
+int32_t FS_MarkAlarmExecuted(void);
 #endif /* APPLICATION_USER_CORE_RTC_FUNCTIONS_H_ */

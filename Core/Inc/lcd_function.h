@@ -32,5 +32,18 @@ uint8_t Set_Weekday_Alarm_LCD(void);
 uint8_t Set_Time_Alarm_LCD(void);
 uint8_t Alarm_Type_LCD(void);
 void Set_Alarm_button_LCD(void);
+
+/* New alarm-workflow screens */
+uint8_t Pick_Time_LCD(uint8_t *hours, uint8_t *minutes, uint8_t *seconds);
+uint8_t Pick_Weekdays_LCD(uint8_t *mask);
+uint8_t Pick_Repeat_LCD(uint8_t *times, uint8_t *iHours, uint8_t *iMinutes);
+uint8_t Alarm_Workflow_LCD(void);
+
+/* Globals populated by the alarm workflow */
+extern uint8_t  g_AlarmWeekdayMask;   /* bit0=Mon .. bit6=Sun, 0x7F = everyday */
+extern uint8_t  g_AlarmXTimes;        /* number of repetitions */
+extern uint8_t  g_AlarmIntervalHours;
+extern uint8_t  g_AlarmIntervalMinutes;
+
 extern volatile uint8_t g_Mode;
 #endif /* APPLICATION_USER_CORE_LCD_FUNCTION_H_ */

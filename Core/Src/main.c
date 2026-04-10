@@ -128,6 +128,7 @@ static uint32_t msg_size = sizeof(uint32_t);
 
 volatile uint32_t underrun_count = 0;
 uint8_t play_file_is_open = 0;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -184,6 +185,7 @@ static int SD_Open_Play(void);
 static int SD_Open_Rec(char *rec_filename, uint32_t FileIndex);
 void RB_Write(RingBuffer_t *rb, uint8_t *data, uint32_t len);
 uint32_t RB_Read(RingBuffer_t *rb, uint8_t *buffer, uint32_t len);
+void Check_Alarm();
 uint32_t RB_GetFreeSpace(RingBuffer_t *rb);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
@@ -257,6 +259,7 @@ int main(void) {
 		}
 	}
 	HAL_Delay(200);
+
 	Print_Date();
 	Print_Time();
 	Print_DateTime_LCD();
@@ -287,6 +290,7 @@ int main(void) {
 			Standalone_Menu(version);
 		} else if ((Set_Mode_LCD() == 1)) {
 			RF_Menu(version);
+			FS_ReadAlarmList();//set alarms according to SD file
 		}
 	}
 
@@ -416,6 +420,16 @@ static void SystemClock_Config(void) {
  * @retval None
  */
 static void MX_GPIO_Init(void) {
+	/* Alarm pin */
+	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+	/* ----- ARD_D6 (PD15) as output -----*/
+	__HAL_RCC_GPIOD_CLK_ENABLE();
+
+	GPIO_InitStruct.Pin = ARD_D6_PIN;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(ARD_D6_PORT, &GPIO_InitStruct);
 
 	/* Only configure ARD pins in distributed-node mode (system_mode == 1).
 	 * In standalone mode the pins are unconnected — leaving them
@@ -423,7 +437,6 @@ static void MX_GPIO_Init(void) {
 	if (system_mode != 1)
 		return;
 
-	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
 
 	/* Enable GPIOG and GPIOE clocks */
 	__HAL_RCC_GPIOG_CLK_ENABLE();
@@ -435,13 +448,6 @@ static void MX_GPIO_Init(void) {
 	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(ARD_D2D4_PORT, &GPIO_InitStruct);
-
-	/* ----- ARD_D6 (PD15) as output -----*/
-	GPIO_InitStruct.Pin = ARD_D6_PIN;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(ARD_D6_PORT, &GPIO_InitStruct);
 
 	/* ----- ARD_D8 (PE3) as EXTI, rising edge -----
 	 * Uses dedicated EXTI3_IRQn — no conflict with SD detect (PF5/EXTI5) */
@@ -677,10 +683,11 @@ static void SD_Write_Task(void *argument) {
 					total_sd_bytes_written);
 			UART_Print(msg);
 			BSP_LED_On(LED_OK);
+			//if it was activated from alarm proceed to mark done and reset alarm flag
+
 
 			g_FileIndex++;
 			g_SDReady = 0;
-			HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 		}
 		/* ================= PLAYBACK MODE ================= */
 		else if (g_Mode == MODE_PLAY) {
@@ -725,7 +732,6 @@ static void SD_Write_Task(void *argument) {
 
 			f_close(&File_Play);
 			UART_Print("Playback complete.\r\n");
-			HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 			BSP_LED_On(LED_OK);
 		} /* ================= FULL DUPLEX MODE ================= */
 		else if (g_Mode == MODE_FULL_DUPLEX) {
@@ -824,11 +830,11 @@ static void SD_Write_Task(void *argument) {
 
 			UART_Print(msg);
 			BSP_LED_On(LED_OK);
-
 			g_FileIndex++;
 			g_SDReady = 0;
 		}
 		/* Small delay to debounce before accepting next button press */
+		Check_Alarm();
 		osDelay(500);
 	}
 }
@@ -982,22 +988,29 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
  *         ARD_D4=0  ARD_D2=1  (0b01) → MODE_RECORD
  *         ARD_D4=1  ARD_D2=0  (0b10) → MODE_PLAY
  */
+void Check_Alarm(void){
+	if (g_AlarmFlag){
+		//Turn off alarm pin when communication is set
+		HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
+		g_AlarmFlag = 0;
+		FS_MarkAlarmExecuted();//mark alarm executed
+		FS_ReadAlarmList();//set next alarm after the current alarm was executed
+	}
+}
 static void System_Controller_Task(void *argument) {
 	(void) argument;
 
-	/* Let user configure alarm via LCD before entering wait loop */
-	if (system_mode == 0) {
-		Set_Alarm_button_LCD();
-		/* Show confirmation screen, then clear for normal operation */
-		UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
-		UTIL_LCD_SetFont(&Font16);
-		UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
-		UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
-		UTIL_LCD_DisplayStringAt(0, 120, (uint8_t*) "Waiting for alarm",
-				CENTER_MODE);
-	}
-
 	for (;;) {
+        if (system_mode == 0 && !g_Busy && !g_AlarmFlag) {
+            Set_Alarm_button_LCD();
+            UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+            UTIL_LCD_SetFont(&Font16);
+            UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_BLACK);
+            UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+            UTIL_LCD_DisplayStringAt(0, 120,
+                (uint8_t*)"Waiting for alarm...", CENTER_MODE);
+        }
+
 		/* Block until EXTI or RTC alarm releases the semaphore */
 		osSemaphoreAcquire(ExtiSemaphoreHandle, osWaitForever);
 
@@ -1007,7 +1020,7 @@ static void System_Controller_Task(void *argument) {
 			continue;
 		}
 
-		if (system_mode == 1) {
+		if ((system_mode == 1)&&(g_AlarmFlag)&&(g_ExtiFlag)){
 			/* Read the two selector pins */
 			uint8_t d2 = HAL_GPIO_ReadPin(ARD_D2D4_PORT, ARD_D2_PIN); /* bit 0 */
 			uint8_t d4 = HAL_GPIO_ReadPin(ARD_D2D4_PORT, ARD_D4_PIN); /* bit 1 */
@@ -1015,22 +1028,20 @@ static void System_Controller_Task(void *argument) {
 
 			switch (config) {
 			case 0x01: /* ARD_D4=0, ARD_D2=1 → RECORD */
-				g_Mode = MODE_RECORD;
-				HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
-				g_ButtonPressed = 1;
 				UART_Print("EXTI: Start recording\r\n");
+				g_Mode = MODE_RECORD;
+				g_ButtonPressed = 1;
 				break;
 
 			case 0x02: /* ARD_D4=1, ARD_D2=0 → PLAY */
-				g_Mode = MODE_PLAY;
-				HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
-				g_ButtonPressed = 1;
 				UART_Print("EXTI: Start Playing\r\n");
+				g_Mode = MODE_PLAY;
+				g_ButtonPressed = 1;
 				break;
 			case 0x03: /* ARD_D4=1, ARD_D2=1 → FULL_DUPLEX */
+				UART_Print("EXTI: Start fullduplex\r\n");
 				g_Mode = MODE_FULL_DUPLEX;
 				g_ButtonPressed = 1;
-				UART_Print("EXTI: Start fullduplex\r\n");
 				break;
 
 			default:
@@ -1040,10 +1051,8 @@ static void System_Controller_Task(void *argument) {
 				break;
 			}
 		} else if (system_mode == 0 && g_AlarmFlag) {
-			    g_AlarmFlag = 0;
 			    g_Mode = MODE_FULL_DUPLEX;
-			    BSP_LED_Off(LED_ERROR);
-			    g_ButtonPressed = 1;
+			    g_ButtonPressed = 1;//start recording and playing
 		}
 		g_ExtiFlag = 0;
 	}
