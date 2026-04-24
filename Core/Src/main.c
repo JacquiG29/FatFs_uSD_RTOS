@@ -35,7 +35,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-char version[10] = "1.3.6";
+char version[10] = "1.3.7";
 uint8_t system_mode = 2; //Standalone: 0, Distributed node: 1, Not set: 2
 UART_HandleTypeDef huart3;
 RTC_HandleTypeDef hrtc;
@@ -297,7 +297,7 @@ int main(void) {
 	/* Initialize ARD GPIOs + EXTI — now that system_mode is known.
 	 * Skipped entirely in standalone mode (pins unconnected). */
 	MX_GPIO_Init();
-	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
 	UART_Print("Entering main loop...\r\n");
 
 	SDQueueHandle = osMessageQueueNew(msg_count, msg_size, NULL);
@@ -991,7 +991,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 void Check_Alarm(void){
 	if (g_AlarmFlag){
 		//Turn off alarm pin when communication is set
-		HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
 		g_AlarmFlag = 0;
 		FS_MarkAlarmExecuted();//mark alarm executed
 		FS_ReadAlarmList();//set next alarm after the current alarm was executed

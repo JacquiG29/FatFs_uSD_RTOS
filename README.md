@@ -379,15 +379,30 @@ Non-cacheable configuration is **critical** - without it, the CPU cache and DMA 
 | Playback complete | SD task waits for next button press to replay `TEST.WAV` |
 
 ## Alarms
-[STATUS] [DD] [HH]:[MM]:[SS]
+[STATUS] [TYP] [WEEKDAY] [HH]:[MM]:[SS]
 
+TYPE
+0 = One shot
+1 = Weekly
+
+STATUS
 0 = Pending
 1 = Executed
 
 ALARMS.TXT Example:
 ```
-  1 10 08:00:00  <- (Already ran)
-  1 11 14:30:00  <- (Already ran)
-  0 12 09:15:00  <- (Next to run)
-  0 15 20:00:00  <- (Pending)
+  1 0 05 08:00:00  <- (Already ran)
+  1 0 05 14:30:00  <- (Already ran)
+  0 0 05 09:15:00  <- (Next to run)
+  0 0 07 20:00:00  <- (Pending)
 ```
+
+0 0 04 14:09:05
+1 0 05 13:57:05
+1 0 05 14:01:05
+1 0 05 14:05:05
+0 0 05 14:09:05
+0 0 06 13:57:05
+0 0 06 14:01:05
+0 0 06 14:05:05
+0 0 06 14:09:05

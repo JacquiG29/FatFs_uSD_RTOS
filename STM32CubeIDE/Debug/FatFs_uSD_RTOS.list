@@ -4914,8 +4914,8 @@ int main(void) {
 	 * Skipped entirely in standalone mode (pins unconnected). */
 	MX_GPIO_Init();
  8002984:	f000 f930 	bl	8002be8 <MX_GPIO_Init>
-	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
- 8002988:	2200      	movs	r2, #0
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
+ 8002988:	2201      	movs	r2, #1
  800298a:	f44f 4100 	mov.w	r1, #32768	@ 0x8000
  800298e:	482a      	ldr	r0, [pc, #168]	@ (8002a38 <main+0x1f0>)
  8002990:	f00e fadc 	bl	8010f4c <HAL_GPIO_WritePin>
@@ -7219,8 +7219,8 @@ void Check_Alarm(void){
  800399e:	2b00      	cmp	r3, #0
  80039a0:	d00c      	beq.n	80039bc <Check_Alarm+0x28>
 		//Turn off alarm pin when communication is set
-		HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
- 80039a2:	2200      	movs	r2, #0
+		HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
+ 80039a2:	2201      	movs	r2, #1
  80039a4:	f44f 4100 	mov.w	r1, #32768	@ 0x8000
  80039a8:	4806      	ldr	r0, [pc, #24]	@ (80039c4 <Check_Alarm+0x30>)
  80039aa:	f00d facf 	bl	8010f4c <HAL_GPIO_WritePin>
@@ -8357,8 +8357,8 @@ void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
  8004092:	b082      	sub	sp, #8
  8004094:	af00      	add	r7, sp, #0
  8004096:	6078      	str	r0, [r7, #4]
-	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
- 8004098:	2201      	movs	r2, #1
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
+ 8004098:	2200      	movs	r2, #0
  800409a:	f44f 4100 	mov.w	r1, #32768	@ 0x8000
  800409e:	4807      	ldr	r0, [pc, #28]	@ (80040bc <HAL_RTC_AlarmAEventCallback+0x2c>)
  80040a0:	f00c ff54 	bl	8010f4c <HAL_GPIO_WritePin>

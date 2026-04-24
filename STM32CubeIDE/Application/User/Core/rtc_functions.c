@@ -348,7 +348,7 @@ void Show_Menu(void) {
 }
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
-	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 	g_AlarmFlag = 1;
 	osSemaphoreRelease(ExtiSemaphoreHandle);
 }
