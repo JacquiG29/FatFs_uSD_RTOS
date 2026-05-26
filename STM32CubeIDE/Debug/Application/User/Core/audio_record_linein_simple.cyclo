@@ -1,6 +1,8 @@
-../Application/User/Core/audio_record_linein_simple.c:62:5:Audio_LoopbackInit	3
-../Application/User/Core/audio_record_linein_simple.c:103:6:BSP_AUDIO_IN_HalfTransfer_CallBack	2
-../Application/User/Core/audio_record_linein_simple.c:114:6:BSP_AUDIO_IN_TransferComplete_CallBack	2
-../Application/User/Core/audio_record_linein_simple.c:126:6:BSP_AUDIO_IN_Error_CallBack	1
-../Application/User/Core/audio_record_linein_simple.c:141:12:WM8994_WriteReg	2
-../Application/User/Core/audio_record_linein_simple.c:161:5:Audio_FixLineInConfig	4
+../Application/User/Core/audio_record_linein_simple.c:62:5:Audio_LoopbackInit	4
+../Application/User/Core/audio_record_linein_simple.c:110:6:BSP_AUDIO_IN_HalfTransfer_CallBack	2
+../Application/User/Core/audio_record_linein_simple.c:121:6:BSP_AUDIO_IN_TransferComplete_CallBack	2
+../Application/User/Core/audio_record_linein_simple.c:133:6:BSP_AUDIO_IN_Error_CallBack	1
+../Application/User/Core/audio_record_linein_simple.c:148:12:WM8994_WriteReg	2
+../Application/User/Core/audio_record_linein_simple.c:164:5:WM8994_ReadReg	2
+../Application/User/Core/audio_record_linein_simple.c:181:5:Audio_EnableClassAB	3
+../Application/User/Core/audio_record_linein_simple.c:208:5:Audio_FixLineInConfig	4

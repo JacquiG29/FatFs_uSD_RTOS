@@ -64,15 +64,22 @@ int Audio_LoopbackInit(void)
     BSP_AUDIO_Init_t AudioInInit;
     BSP_AUDIO_Init_t AudioOutInit;
     /* Configure audio OUTPUT (Headphone) */
-    AudioOutInit.Device        = AUDIO_OUT_DEVICE_HEADPHONE;
+    AudioOutInit.Device        = AUDIO_OUT_DEVICE_SPK_HP;
     AudioOutInit.ChannelsNbr   = 2;
     AudioOutInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioOutInit.BitsPerSample = AUDIO_RESOLUTION_16B;
     AudioOutInit.Volume        = 80;
 
+    /* Initialize the audio hardware and codec (defaults to Class D) */
     if (BSP_AUDIO_OUT_Init(0, &AudioOutInit) != BSP_ERROR_NONE)
     {
         return -2;  /* Failed */
+    }
+    /* Manually switch the amplifier to Class AB */
+    if (Audio_EnableClassAB() != 0)
+    {
+        // Handle I2C communication error
+    	return -3;
     }
 
 
@@ -151,7 +158,47 @@ static int WM8994_WriteReg(uint16_t reg, uint16_t value)
     return 0;
 }
 
+/**
+ * @brief  Reads a 16-bit register from the WM8994 codec
+ */
+int WM8994_ReadReg(uint16_t reg, uint16_t *value)
+{
+    uint8_t data[2];
 
+    if (BSP_I2C4_ReadReg16(WM8994_I2C_ADDR, reg, data, 2) != BSP_ERROR_NONE)
+    {
+        return -1;
+    }
+
+    /* Reconstruct the 16-bit value from MSB and LSB */
+    *value = (data[0] << 8) | data[1];
+    return 0;
+}
+
+/**
+ * @brief  Switches the WM8994 speaker output from Class D (default) to Class AB
+ */
+int Audio_EnableClassAB(void)
+{
+    uint16_t reg_value = 0;
+
+    /* Read current SPKMIXR (Register 0x0023) state */
+    if (WM8994_ReadReg(0x0023, &reg_value) != 0)
+    {
+        return -1; // I2C Read failed
+    }
+
+    /* Set Bit 8 (SPKOUT_CLASSAB) to 1 */
+    reg_value |= (1 << 8);
+
+    /* Write the modified value back to the codec */
+    if (WM8994_WriteReg(0x0023, reg_value) != 0)
+    {
+        return -1; // I2C Write failed
+    }
+
+    return 0; // Success
+}
 /**
  * @brief  Fixes Line-In configuration:
  * 1. Enables VMID (Critical for negative cycle)

@@ -47,7 +47,7 @@ extern volatile uint8_t PlaybackStarted;
  */
 int Audio_LoopbackInit(void);
 int Audio_FixLineInConfig(void);
-
+int Audio_EnableClassAB(void);
 #ifdef __cplusplus
 }
 #endif
