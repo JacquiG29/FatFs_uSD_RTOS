@@ -30,6 +30,7 @@
 #include "stm32h735g_discovery_errno.h"
 extern SAI_HandleTypeDef haudio_out_sai;
 extern osMessageQueueId_t SDQueueHandle;
+extern int INPUT_GAIN;
 /* -----------------------------------------------------------------------------
  * BUFFERS - Must be in D3 SRAM for DMA access
  * -------------------------------------------------------------------------- */
@@ -64,11 +65,12 @@ int Audio_LoopbackInit(void)
     BSP_AUDIO_Init_t AudioInInit;
     BSP_AUDIO_Init_t AudioOutInit;
     /* Configure audio OUTPUT (Headphone) */
+    //AUDIO_OUT_DEVICE_HEADPHONE
     AudioOutInit.Device        = AUDIO_OUT_DEVICE_SPK_HP;
     AudioOutInit.ChannelsNbr   = 2;
     AudioOutInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioOutInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioOutInit.Volume        = 80;
+    AudioOutInit.Volume        = 100;
 
     /* Initialize the audio hardware and codec (defaults to Class D) */
     if (BSP_AUDIO_OUT_Init(0, &AudioOutInit) != BSP_ERROR_NONE)
@@ -76,11 +78,11 @@ int Audio_LoopbackInit(void)
         return -2;  /* Failed */
     }
     /* Manually switch the amplifier to Class AB */
-    if (Audio_EnableClassAB() != 0)
+    /*if (Audio_EnableClassAB() != 0)
     {
         // Handle I2C communication error
     	return -3;
-    }
+    }*/
 
 
     /* Configure audio INPUT (LINE_IN) */
@@ -88,7 +90,7 @@ int Audio_LoopbackInit(void)
     AudioInInit.ChannelsNbr   = 2;                             /* Stereo */
     AudioInInit.SampleRate    = AUDIO_FREQUENCY_48K;
     AudioInInit.BitsPerSample = AUDIO_RESOLUTION_16B;
-    AudioInInit.Volume        = 80;
+    AudioInInit.Volume        = INPUT_GAIN;
 
     /* Instance 0 = SAI/LINE_IN (NOT Instance 2 which is DFSDM/digital mics) */
     if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)
@@ -198,6 +200,31 @@ int Audio_EnableClassAB(void)
     }
 
     return 0; // Success
+}
+
+/**
+ * @brief  Reads register 0x23 and prints the speaker amplifier mode to UART.
+ *         Bit 8: 0 = Class D (default), 1 = Class AB
+ * @retval 0 = Class D, 1 = Class AB, -1 = I2C error
+ */
+int Audio_PrintSpeakerMode(void)
+{
+    extern UART_HandleTypeDef huart3;
+    uint16_t reg_value = 0;
+    char msg[64];
+
+    if (WM8994_ReadReg(0x0023, &reg_value) != 0)
+    {
+        HAL_UART_Transmit(&huart3, (uint8_t*)"SPK mode: I2C read failed\r\n", 27, HAL_MAX_DELAY);
+        return -1;
+    }
+
+    uint8_t is_class_ab = (reg_value >> 8) & 0x01;
+    sprintf(msg, "SPK reg 0x23=0x%04X -> %s\r\n", reg_value,
+            is_class_ab ? "Class AB" : "Class D");
+    HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+
+    return is_class_ab;
 }
 /**
  * @brief  Fixes Line-In configuration:

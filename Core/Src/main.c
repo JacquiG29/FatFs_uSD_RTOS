@@ -4,7 +4,7 @@
  * @file    FatFs/FatFs_uSD_RTOS/Core/Src/main.c
  * @author  MCD Application Team
  * @brief   Main program body
- *          This sample code shows how to use FatFs with RAM disk drive.
+ *
  ******************************************************************************
  * @attention
  *
@@ -28,24 +28,12 @@
 #include "arm_math.h"
 /* Private includes --------------
  * --------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-/* Defines */
-char version[10] = "1.3.7";
-uint8_t system_mode = 2; //Standalone: 0, Distributed node: 1, Not set: 2
-UART_HandleTypeDef huart3;
-RTC_HandleTypeDef hrtc;
-uint8_t flag_set_time = 1;
-#define SD_SAMPLE_RATE 48000
-
-/* ===== SET THIS BEFORE FLASHING TO SELECT MODE ===== */
-volatile uint8_t g_Mode = MODE_PLAY; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
-#define RECORD_DURATION_SECONDS 15
-const TCHAR *audio_play = "PIANO1.WAV";
+/*===========================================================================*/
+/*                     SET THIS BEFORE FLASHING                              */
+/*===========================================================================*/
+#define RECORD_DURATION_SECONDS 20
+int INPUT_GAIN = 80;//values from 0 to 100 accepted
+const TCHAR *audio_play = "PIANO1.WAV";//max 8 characters name
 /* WAV FILES NAMES:
  * ESS_F
  * SIN_1KL
@@ -53,6 +41,29 @@ const TCHAR *audio_play = "PIANO1.WAV";
  * SIN_1K
  * PIANO1
  * */
+/*
+ * NT_TWIN
+ * NT_1K
+ * NT_1KL
+ * NT_1KR
+ * NT_DC
+ * NT_PULSE
+ * NT_SMPTE
+ * NT_SWEEP
+ * */
+/*===========================================================================*/
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+/* Defines */
+char version[10] = "1.3.9";
+uint8_t system_mode = 2; //Standalone: 0, Distributed node: 1, Not set: 2
+UART_HandleTypeDef huart3;
+RTC_HandleTypeDef hrtc;
+uint8_t flag_set_time = 1;
+#define SD_SAMPLE_RATE 48000
+volatile uint8_t g_Mode = MODE_PLAY; /* Change to MODE_PASSTHROUGH, MODE_RECORD, or MODE_PLAY */
+
 /* WAV Header Structure */
 typedef struct {
 	char chunkId[4];        // "RIFF"
@@ -281,6 +292,9 @@ int main(void) {
 	}
 
 	/* NOTE: Audio_DisableInputBoost() removed - was causing noise issues */
+
+	/* Verify speaker amplifier mode on UART */
+	Audio_PrintSpeakerMode();
 
 	UART_Print("End config\r\n");
 

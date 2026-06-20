@@ -430,7 +430,7 @@ int32_t BSP_AUDIO_OUT_Init(uint32_t Instance, BSP_AUDIO_Init_t *AudioInit)
           switch (AudioInit->Device)
           {
             case AUDIO_OUT_DEVICE_SPK_HP:
-              codec_init.OutputDevice = WM8994_OUT_SPEAKER;
+              codec_init.OutputDevice = WM8994_OUT_BOTH;  /* Enable both headphone (DAC1) and speaker (DAC2) paths */
               break;
             case AUDIO_OUT_DEVICE_AUTO:
               codec_init.OutputDevice = WM8994_OUT_AUTO;
