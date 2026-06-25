@@ -33,7 +33,7 @@
 /*===========================================================================*/
 #define RECORD_DURATION_SECONDS 20
 int INPUT_GAIN = 80;//values from 0 to 100 accepted
-const TCHAR *audio_play = "PIANO1.WAV";//max 8 characters name
+const TCHAR *audio_play = "SIN_1K.WAV";//max 8 characters name
 /* WAV FILES NAMES:
  * ESS_F
  * SIN_1KL

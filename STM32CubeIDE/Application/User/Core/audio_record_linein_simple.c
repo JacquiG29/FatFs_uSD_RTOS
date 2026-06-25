@@ -77,13 +77,11 @@ int Audio_LoopbackInit(void)
     {
         return -2;  /* Failed */
     }
-    /* Manually switch the amplifier to Class AB */
-    /*if (Audio_EnableClassAB() != 0)
-    {
-        // Handle I2C communication error
-    	return -3;
-    }*/
 
+    /* NOTE: Do NOT enable Class AB here. BSP_AUDIO_IN_Init() below re-runs
+     * WM8994_Init() with OutputDevice=HEADPHONE + InputDevice=LINE1, which takes
+     * the analog-output branch and rewrites reg 0x23 = 0x0000 (Class D),
+     * clobbering any Class AB bit set before it. Enable Class AB AFTER IN init. */
 
     /* Configure audio INPUT (LINE_IN) */
     AudioInInit.Device        = AUDIO_IN_DEVICE_ANALOG_LINE1;  /* LINE_IN jack */
@@ -96,6 +94,14 @@ int Audio_LoopbackInit(void)
     if (BSP_AUDIO_IN_Init(0, &AudioInInit) != BSP_ERROR_NONE)
     {
         return -1;  /* Failed - check codec I2C connection */
+    }
+
+    /* Manually switch the speaker amplifier to Class AB.
+     * Must run AFTER BSP_AUDIO_IN_Init() — see note above.
+     * Comment this out to keep the codec default (Class D). */
+    if (Audio_EnableClassAB() != 0)
+    {
+        return -3;  //I2C communication error
     }
 
     return 0;

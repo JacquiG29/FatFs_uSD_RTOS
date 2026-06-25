@@ -133,7 +133,8 @@ HAL_Init() --> SystemClock_Config() --> MCO1 output (HSE)
     --> Print_Date() / Print_Time() / Print_DateTime_LCD()
     --> MX_FATFS_Init()
     --> Audio_LoopbackInit()
-        (configures WM8994 output to Speaker + Headphone/Line-Out, Class D by default)
+        (configures WM8994 output to Speaker + Headphone/Line-Out;
+         enables Class AB via Audio_EnableClassAB() after IN init)
     --> Audio_PrintSpeakerMode()
         (reads reg 0x23, prints active amplifier mode Class D/AB to UART)
     --> Set_Mode_LCD()
@@ -413,10 +414,10 @@ The WM8994 speaker amplifier mode is controlled by **bit 8 (`SPKOUT_CLASSAB`) of
 | `0x0000` | **Class D** | Codec default (set by `WM8994_Init`). Higher efficiency. |
 | `0x0100` | **Class AB** | Bit 8 set. Lower noise / better quality for passive speakers, higher power draw. |
 
-- **To use Class D (current default):** leave the `Audio_EnableClassAB()` call commented out in `Audio_LoopbackInit()`. The codec init already writes `0x0000`, and nothing else overwrites it.
-- **To use Class AB:** uncomment the `Audio_EnableClassAB()` call in `Audio_LoopbackInit()`. It read-modify-writes reg `0x23` to set bit 8, after `BSP_AUDIO_OUT_Init()` and before `BSP_AUDIO_IN_Init()`. No later codec call (`Play`, `Resume`, `SetVolume`, `SetMute`, input init) touches reg `0x23`, so the setting persists.
+- **To use Class D:** comment out the `Audio_EnableClassAB()` call in `Audio_LoopbackInit()`. The codec init writes `0x0000`, and nothing else overwrites it.
+- **To use Class AB:** call `Audio_EnableClassAB()` **after `BSP_AUDIO_IN_Init()`** (the last step of `Audio_LoopbackInit()`). It read-modify-writes reg `0x23` to set bit 8. After this point no codec call (`Play`, `Resume`, `SetVolume`, `SetMute`) touches reg `0x23`, so the setting persists.
 
-> **Note:** `Audio_EnableClassAB()` is currently **commented out**, so the board boots in **Class D**.
+> ⚠️ **Ordering gotcha (important):** `Audio_EnableClassAB()` must run **after** `BSP_AUDIO_IN_Init()`, not between OUT and IN init. `BSP_AUDIO_IN_Init()` re-runs `WM8994_Init()` with `OutputDevice = WM8994_OUT_HEADPHONE` + `InputDevice = WM8994_IN_LINE1`. Because the input device is not `WM8994_IN_NONE`, the driver takes the **analog-output branch** (`wm8994.c` ~line 458) and rewrites reg `0x23 = 0x0000` (Class D), silently clobbering any Class AB bit set earlier. If you set Class AB before IN init, `Audio_PrintSpeakerMode()` will still report Class D — this is the most common cause of "Class AB won't stick."
 
 `Audio_PrintSpeakerMode()` reads reg `0x23` back over I2C and prints the active mode to UART
 at boot (called from `main()` after `Audio_LoopbackInit()`), e.g.:
