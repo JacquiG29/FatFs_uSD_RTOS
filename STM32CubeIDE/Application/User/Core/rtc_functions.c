@@ -35,6 +35,15 @@ void MX_RTC_Init(void) {
 		Error_Handler();
 	}
 
+	/* Synchronise the RTC calendar shadow registers with the LSE-clocked counter
+	 * before any read/write. On a COLD power-up the LSE (32.768 kHz) domain needs
+	 * time to settle after the RTC clock is selected; accessing the RTC too early
+	 * makes the first SetTime/SetDate time out and drop into Error_Handler
+	 * (red LED + hang in while(1)) — which is why a manual restart "fixes" it
+	 * (a warm reset keeps the RTC already running). This call blocks until the
+	 * domain is ready, bounded by the HAL timeout. */
+	HAL_RTC_WaitForSynchro(&hrtc);
+
 	/* USER CODE BEGIN Check_RTC_BKUP */
 	// Check if RTC is in the backup register
 	if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) == 0xBEBE) {
@@ -63,22 +72,14 @@ void MX_RTC_Init(void) {
 		Error_Handler();
 	}
 
-	/** Enable the Alarm A
-	 */
-	sAlarm.AlarmTime.Hours = 0x0;
-	sAlarm.AlarmTime.Minutes = 0x0;
-	sAlarm.AlarmTime.Seconds = 0x0;
-	sAlarm.AlarmTime.SubSeconds = 0x0;
-	sAlarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_SUB1H;
-	sAlarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_SET;
-	sAlarm.AlarmMask = RTC_ALARMMASK_NONE;
-	sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
-	sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
-	sAlarm.AlarmDateWeekDay = 0x1;
-	sAlarm.Alarm = RTC_ALARM_A;
-	if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK) {
-		Error_Handler();
-	}
+	/* Do NOT arm Alarm A on first boot.
+	 * The RTC time was just set to 00:00:00, so arming an alarm at 00:00:00 with
+	 * ALARMMASK_NONE matches the current time and fires IMMEDIATELY — lighting
+	 * LED_ERROR (red) and releasing ExtiSemaphoreHandle before it even exists.
+	 * Real alarms are programmed later by the LCD alarm workflow (standalone)
+	 * or FS_ReadAlarmList() (distributed). Start with the alarm disabled. */
+	(void) sAlarm; /* struct kept for reference; unused while alarm starts disabled */
+	HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
 	/* USER CODE BEGIN RTC_Init 2 */
 	// We only reach this point if the RTC WASN'T configured in the register (first boot).
 	// The time was just set above. Now, save current value so we don't reset next boot.
@@ -348,7 +349,7 @@ void Show_Menu(void) {
 }
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc) {
-	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
 	g_AlarmFlag = 1;
 	osSemaphoreRelease(ExtiSemaphoreHandle);
 }

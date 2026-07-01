@@ -31,15 +31,17 @@
 /*===========================================================================*/
 /*                     SET THIS BEFORE FLASHING                              */
 /*===========================================================================*/
-#define RECORD_DURATION_SECONDS 20
-int INPUT_GAIN = 80;//values from 0 to 100 accepted
-const TCHAR *audio_play = "SIN_1K.WAV";//max 8 characters name
+#define RECORD_DURATION_SECONDS 30
+int INPUT_GAIN = 100;//values from 0 to 100 accepted
+const TCHAR *audio_play = "PINK30.WAV";//max 8 characters name
 /* WAV FILES NAMES:
  * ESS_F
  * SIN_1KL
  * SIN_1KR
  * SIN_1K
  * PIANO1
+ * PINK30
+ * PINKOFF
  * */
 /*
  * NT_TWIN
@@ -56,7 +58,7 @@ const TCHAR *audio_play = "SIN_1K.WAV";//max 8 characters name
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-char version[10] = "1.3.9";
+char version[10] = "1.3.11";
 uint8_t system_mode = 2; //Standalone: 0, Distributed node: 1, Not set: 2
 UART_HandleTypeDef huart3;
 RTC_HandleTypeDef hrtc;
@@ -132,6 +134,10 @@ volatile uint8_t g_AlarmFlag = 0;
 
 #define ARD_D8_PIN    GPIO_PIN_3   /* PE3 - EXTI (dedicated EXTI3_IRQn) */
 #define ARD_D8_PORT   GPIOE
+
+#define ARD_D6_PIN    GPIO_PIN_15   /* PE3 - EXTI (dedicated EXTI3_IRQn) */
+#define ARD_D6_PORT   GPIOD
+
 static uint32_t g_FileIndex = 1; /* Increments per recording: REC_01, REC_02, ... */
 
 static uint32_t msg_count = 2;
@@ -311,7 +317,7 @@ int main(void) {
 	/* Initialize ARD GPIOs + EXTI — now that system_mode is known.
 	 * Skipped entirely in standalone mode (pins unconnected). */
 	MX_GPIO_Init();
-	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
+
 	UART_Print("Entering main loop...\r\n");
 
 	SDQueueHandle = osMessageQueueNew(msg_count, msg_size, NULL);
@@ -444,6 +450,7 @@ static void MX_GPIO_Init(void) {
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(ARD_D6_PORT, &GPIO_InitStruct);
+	HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 
 	/* Only configure ARD pins in distributed-node mode (system_mode == 1).
 	 * In standalone mode the pins are unconnected — leaving them
@@ -1005,7 +1012,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 void Check_Alarm(void){
 	if (g_AlarmFlag){
 		//Turn off alarm pin when communication is set
-		HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(ARD_D6_PORT, ARD_D6_PIN, GPIO_PIN_RESET);
 		g_AlarmFlag = 0;
 		FS_MarkAlarmExecuted();//mark alarm executed
 		FS_ReadAlarmList();//set next alarm after the current alarm was executed
