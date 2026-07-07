@@ -1,0 +1,41 @@
+\chapter{Introduction}\label{chap:intro}
+%The introduction of the thesis should take the reader from the project's big picture and context to the concrete task solved in the thesis. A nice skeleton for a good introduction was given by \textcite{claerbout1991scrutiny}: \emph{review–claim–agenda}. In the review part, the background of the project is covered. This leads up to your claim, which is typically that some entity (software, device) or knowledge (research questions) is missing and sorely needed. The agenda part briefly summarises how your thesis contributes.
+
+%Reference for writting intro:
+%https://pubs.geoscienceworld.org/seg/tle/article/10/1/39/662764/A-scrutiny-of-the-introduction
+
+%Introduction is a sequence of three parts. They are (1) the review, (2) the claim, and (3) the agenda.
+
+%The review. Pick out about 3- 10 papers providing a background to your research and say something about each of them. You couldparaphrasea sentenceor two from eachabstract.The reviewis notintendedtobe a hisron’& reviewgoingbackto Newton or Descartes
+
+%THE REVIEW
+
+The impulse response is a central quantity in acoustics, underpinning applications such as the measurement of speech intelligibility and reverberation in rooms, of sound insulation between rooms, of sound attenuation outdoors, and of sound-speed profiles in the atmosphere. Measuring how sound behaves in a space using the Impulse Response (\acrshort{ir}) is therefore a key part of modern architectural acoustics, environmental noise monitoring, and spatial audio rendering. Traditionally, this has required bulky equipment setups with many wires, specialized audio devices, laptops, and long cable runs.
+
+Standard sound boards for high-level applications currently on the market offer many input and output channels (typically eight inputs and eight outputs, plus digital interfaces such as SPDIF, TDIF, or ADAT). They are equipped with high-quality A/D and D/A converters with at least 20-bit effective resolution. The software drivers of these boards allow for multichannel operation with 24-bit data depth and synchronous playback and recording \cite{farina2000SimMeasIR}. In \cite{holter2009IRRMeas}, a typical setup is described in which a computer generates a discrete measurement signal $x(n)$. This signal is converted into a continuous-time signal $\bar{x}(t)$ and fed into the system under test with the
+unknown impulse response $\bar{h}(t)$. The obtained output $\bar{y}(t)$ is then sampled to obtain $y(n)$, allowing the impulse response $h(n)$ to be calculated.
+
+Similarly, \cite{Mateljan2003CompIR} describes the ARTA system, which uses high-quality PC sound cards (e.g., Terratec EWX 24/96) to achieve comparable results.
+
+While these centralized systems offer high fidelity and reliable synchronization, they are inherently limited by their immobility and the logistical complexity of deployment. In large-scale or cluttered environments—such as forests or complex urban structures—long cable runs are often impractical or impossible.
+
+These constraints have motivated the exploration of distributed and wireless alternatives, enabled by the emergence of powerful microcontrollers and microprocessors, such as those based on the ARM Cortex-M7, and advances in low-power, long-range wireless communication. Such technologies enable decoupling acoustic sensing from centralized hardware by employing networks of compact, battery-powered sensor nodes that record high-quality audio with the precise timing required for advanced acoustic analysis.
+
+A previous effort to address these limitations is documented in \cite{IRThesisAndres}. That research utilized a Raspberry Pi (microprocessor-based) architecture. While it successfully demonstrated the concept, the results highlighted critical limitations: acoustic crosstalk exceeded that of commercial sound cards, and the minimum stable round-trip audio \gls{Latency} was 18 ms (396 samples at 44.1 kHz). This latency, caused by the non-deterministic nature of the Linux operating system, is insufficient for the strict synchronization required for phased-array processing or precise time-of-flight measurements. The study concluded that a fundamental change in hardware architecture or kernel handling was necessary.
+
+In this project, we propose a hardware architecture that transitions from a high-latency microprocessor (\acrshort{mpu}) design to a deterministic microcontroller (\acrshort{mcu}) framework to minimize latency and address synchronization bottlenecks identified in previous Acoustic \gls{dist_sys}. By substituting the Linux-based Raspberry Pi with a bare-metal ARM Cortex-M7 system for audio processing and integrating a dedicated sub-GHz wireless MCU (CC1352P) for synchronization, the proposed architecture aims to decouple acquisition nodes while preserving microsecond-level timing precision.
+
+The aim of the overall project is to design and build an affordable, wireless, synchronized system that acquires the responses to an arbitrary test signal between one source position and several receiver positions---which may be separated by a wall or by up to one kilometre---according to a predefined schedule, so that the impulse response can be recovered during post-processing on a host computer. Building on a preceding specialization project, the work towards the master's thesis extends the system along four directions: increasing the wireless range while implementing and validating full-duplex audio and an analog front end for IEPE sensors on a node; consolidating the node components onto a single printed circuit board; building and testing several copies; and evaluating the system in an indoor scenario (sound insulation) and an outdoor scenario (long-distance sound attenuation) against a reference measurement system. This thesis reports the implementation and validation of the resulting node across its audio-acquisition, wireless-synchronization, and power subsystems.
+
+The main contributions of this work are:
+
+\begin{itemize}
+  \item The design of a heterogeneous embedded node that separates the time-critical audio path from wireless communication and synchronization.
+  \item A full-duplex audio acquisition chain on a bare-metal STM32H7 with the WM8994 codec, deterministic to the sample---its fixed round-trip latency is a known constant that is compensated in post-processing---and validated for impulse-response recovery by exponential-sine-sweep deconvolution.
+  \item The design and construction of an analog front end providing IEPE constant-current excitation and gain-ranged signal conditioning for measurement microphones.
+  \item An event-based master–slave synchronization mechanism using sub-GHz RF communication, achieving sub-microsecond bounded temporal alignment without continuous clock synchronization.
+  \item Experimental validation of the wireless timing behaviour and range under both laboratory and non-line-of-sight outdoor conditions.
+  \item Acoustic validation of the integrated distributed node, including reverberation-time and two-room sound-insulation measurements compared against a reference measurement system.
+\end{itemize}
+
+The remainder of this report is organized as follows. Chapter~2 defines the system requirements. Chapter~3 introduces the theoretical and technological background. Chapter~4 describes the system architecture and methodology. Chapter~5 presents experimental and analytical results. Chapter~6 discusses the implications, limitations, and future work, and Chapter~7 concludes the report.

@@ -14,4 +14,4 @@
 ../Application/User/Core/rtc_functions.c:359:9:FS_WriteAlarm	10
 ../Application/User/Core/rtc_functions.c:427:17:FlattenTime	1
 ../Application/User/Core/rtc_functions.c:432:9:FS_ReadAlarmList	13
-../Application/User/Core/rtc_functions.c:531:9:FS_MarkAlarmExecuted	5
+../Application/User/Core/rtc_functions.c:536:9:FS_MarkAlarmExecuted	5

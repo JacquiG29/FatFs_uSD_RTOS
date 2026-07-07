@@ -37,6 +37,13 @@ function R = measure_ir(rec_file, sweep, opts)
 %     PipelineSamples - DMA software-pipeline depth [stereo frames] used to
 %                 unwrap the circular-buffer artifact (default 2048, the
 %                 4096-int16 / 2048-frame buffer geometry of analyze_loopback.m)
+%     Legacy    - use the original (uncorrected) Python sweep + inverse filter
+%                 (AMS.GET_SINE_SWEEP_LEGACY) for sweeps made by utils_master.py
+%                 such as ESS5S / ESS3S (f1=20, f2=20000, sil=0)   (default false)
+%     PlaybackRatio - integer; >1 when a mono file was played through a stereo/
+%                 interleaved path and so ran this many times too fast (e.g. 2).
+%                 The reference is decimated to match; latency/IR stay valid but
+%                 the sweep aliases, so the top of the FR is unreliable (default 1)
 %     Plot      - draw IR + frequency-response figures   (default true)
 %     Export    - save figures to OutDir               (default false)
 %     OutDir    - export folder                        (default 'results')
@@ -62,6 +69,8 @@ function R = measure_ir(rec_file, sweep, opts)
         opts.PreMs   (1,1) double = 5
         opts.PostMs  (1,1) double = 100
         opts.PipelineSamples (1,1) double = 2048
+        opts.Legacy  (1,1) logical = false
+        opts.PlaybackRatio (1,1) double {mustBeInteger, mustBePositive} = 1
         opts.Plot    (1,1) logical = true
         opts.Export  (1,1) logical = false
         opts.OutDir  (1,:) char = 'results'
@@ -88,8 +97,24 @@ function R = measure_ir(rec_file, sweep, opts)
     if pk > 0, rec = rec / pk; end              % normalise
 
     % ---- Matched inverse filter & ideal reference -------------------------
-    inv     = ams.get_inverse_filter(sweep.f1, sweep.f2, sweep.Ti, sweep.sil, fs);
-    ref_swp = ams.get_sine_sweep   (sweep.f1, sweep.f2, sweep.Ti, sweep.sil, fs);
+    % Legacy=true replicates the original (uncorrected) Python generator, for
+    % sweeps made with utils_master.py (e.g. ESS5S / ESS3S).
+    if opts.Legacy
+        inv     = ams.get_inverse_filter_legacy(sweep.f1, sweep.f2, sweep.Ti, sweep.sil, fs);
+        ref_swp = ams.get_sine_sweep_legacy   (sweep.f1, sweep.f2, sweep.Ti, sweep.sil, fs);
+    else
+        inv     = ams.get_inverse_filter(sweep.f1, sweep.f2, sweep.Ti, sweep.sil, fs);
+        ref_swp = ams.get_sine_sweep   (sweep.f1, sweep.f2, sweep.Ti, sweep.sil, fs);
+    end
+
+    % PlaybackRatio>1 replicates a mono file played through a stereo/interleaved
+    % path: consecutive mono samples are consumed as L/R frames, so the sweep
+    % plays PlaybackRatio-times too fast. Decimate the reference the same way
+    % (plain sample skipping, no anti-alias) so it matches the recording.
+    if opts.PlaybackRatio > 1
+        inv     = inv(1:opts.PlaybackRatio:end);
+        ref_swp = ref_swp(1:opts.PlaybackRatio:end);
+    end
 
     ref_ir = ams.fast_conv(ref_swp, inv);       % ideal, zero-latency loopback
     p_ref  = ams.find_peak(ref_ir);

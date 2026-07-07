@@ -1,8 +1,10 @@
 % AMS  Acoustic Measurement System utilities (MATLAB port of utils_master.py)
 %
 % Signal generation
-%   get_sine_sweep     - Exponential sine sweep (Farina ESS) + silence
-%   get_inverse_filter - Matched inverse filter for ESS deconvolution
+%   get_sine_sweep            - Exponential sine sweep (corrected Farina ESS)
+%   get_inverse_filter        - Matched inverse filter (corrected)
+%   get_sine_sweep_legacy     - Bit-faithful replica of the original Python ESS
+%   get_inverse_filter_legacy - Matched inverse filter for the original ESS
 %
 % Deconvolution / analysis
 %   fast_conv          - Fast linear convolution via FFT (recorded * inverse)

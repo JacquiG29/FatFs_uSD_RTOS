@@ -1,0 +1,90 @@
+RESULTS: D:\EMECS\THESIS_RESULTS\results_tex
+===================================================================================================
+STAGE 1 VALIDATION 
+===================================================================================================
+D:\EMECS\stm32cubeh7-v1-12-0\STM32Cube_FW_H7_V1.12.0\Projects\STM32H735G-DK\Applications\FatFs\FatFs_uSD_RTOS\Audio_analysis\New-Tests\REC02
+REC 01-10 ESS5S
+REC 11-20 ESS_F
+REC 21-30 NT_PULSE
+REC 31-35 ESS3S
+REC 36-45 NT_DC
+REC 46-50 NT_SMPTE
+
+===================================================================================================
+STAGE 3 VALIDATION 
+===================================================================================================
+
+D:\EMECS\THESIS_RESULTS\RECORDINGS
+AFE PCB WITH STM32 INTEGRATION LAB EQUIPMENT TESTS
+REC29 -> INPUT = SIGNAL GENERATOR 1K 1V Vpk-pk - 0dB AFE 
+REC31-32 -> INPUT = SIGNAL GENERATOR SINE SWEEP LOG 10s START: 5Hz STOP: 20kHz 1V Vpk-pk - 0dB AFE 
+REC53 -> INPUT = SIGNAL GENERATOR SINE SWEEP LOG 10s START: 5Hz STOP: 20kHz 50mV Vpk-pk - 20dB AFE 
+REC39 -> DUMMY MIC CONNECTED TO 20dB AFE RIGHT CHANNEL FULL DUPLEX, PASSIVE SPEAKER PLAYING SIN_1K 
+REC40 -> DUMMY MIC CONNECTED TO 20dB AFE RIGHT CHANNEL FULL DUPLEX, PASSIVE SPEAKER PLAYING ESS_F 
+FOR 43 AND 44 THE SPEAKER WAS AT 10cm of DUMMY MIC
+REC43 -> DUMMY MIC CONNECTED TO 20dB AFE RIGHT CHANNEL FULL DUPLEX, PASSIVE SPEAKER PLAYING ESS_F
+REC44 -> DUMMY MIC CONNECTED TO 20dB AFE RIGHT CHANNEL FULL DUPLEX, PASSIVE SPEAKER PLAYING SIN_1K
+REC47 -> INPUT = SIGNAL GENERATOR 1K 50mV Vpk-pk - 40dB AFE 
+REC48 -> INPUT = SIGNAL GENERATOR 1K 100mV Vpk-pk - 40dB AFE 
+REC51 -> INPUT = SIGNAL GENERATOR 1K 50mV Vpk-pk - 20dB AFE 
+REC51 -> INPUT = SIGNAL GENERATOR 1K 100mV Vpk-pk - 20dB AFE 
+REC53 -> INPUT = SIGNAL GENERATOR SINE SWEEP LOG 10s START: 5Hz STOP: 20kHz 50mV Vpk-pk - 20dB AFE 
+REC55 -> INPUT = SIGNAL GENERATOR 1K 200mV Vpk-pk - 20dB AFE 
+REC55 -> INPUT = SIGNAL GENERATOR 1K 500mV Vpk-pk - 20dB AFE 
+
+===================================================================================================
+STAGE 4 VALIDATION 
+===================================================================================================
+
+REVERBERATION AND SOUND INSULATION TESTS
+
+D:\EMECS\THESIS_RESULTS\PCB\REC_REV_INS_ANA
+SPEAKER: A5X Nearfield Monitor Adam Audio 
+MICS: DeltaTron Microphone Preamplifier Type 2671 with Prepolarized Free-field Microphone — Type 4189
+
+REC 07 NOISE INTRODUCED FROM 7V POWER SOURCE (LEFT CHANNEL HAS THE RELEVANT DATA)
+REC 17 ANTOHER DEMO OF NOISE INTRODUCED BY THE PWER SUPPLY PCB
+REC32 CONNECTING STM32 TO POWER BANK "NOISE" almost zero 
+ALL RECORDINGS USING 0dB GAIN AT AFE PCB AND 0dB SPEAKER
+REC37-40 SYNC NODES -> RECEIVING ROOM RECORDINGS - SOURCE ROOM PLAYED PINK30
+REC41-43 SYNC NODES -> RECEIVING ROOM RECORDINGS - SOURCE ROOM PLAYED ESS_F
+REC44-46 SYNC NODES -> RECEIVING ROOM RECORDINGS - SOURCE ROOM SPEAKER OFF
+REC47-50 SYNC NODES -> SOURCE ROOM RECORDINGS - SOURCE ROOM PLAYED PINK30
+REC53-55 SYNC NODES -> REVERBERATION TEST RECEIVING ROOM RECORDINGS - RECEIVING ROOM PLAYED PINKOFF
+
+To validate this the reference source of experiment is in: D:\EMECS\THESIS_RESULTS\Lab5_Grp4
+
+I am not sure if this code can help: D:\EMECS\THESIS_RESULTS\AUDIO_ANALYSIS: Measurements of a small tweeter at 1m, as well as code to estimate reverberation time in 1/3-octave bands from impulse responses.
+• A measured file, M0001_S01_R01.ETX, which is a tweeter measured at 1m distance. The model is SEAS H615. 
+• A Matlab script, H615_Script_singleIRfile.m, which reads the file (using the function readetxfile.m which is also attached) and plots the IR and FR.
+Note that the suggested time window for the FFT is sampels no. 1 - 189. It gives a very smooth response. 
+• A Matlab function, calcT60_bands.m, which calculates the T60-values for a number of frequency bands. Please try to use it, and tell me if the help text is adequate!
+
+===================================================================================================
+
+ANECHOIC CHAMBER TESTS - STANDALONE MODE
+
+All records are in: D:\EMECS\THESIS_RESULTS\PCB\REC_REV_INS_ANA
+1 SPEAKER: A5X Nearfield Monitor Adam Audio 
+2 MICS: DeltaTron Microphone Preamplifier Type 2671 with Prepolarized Free-field Microphone — Type 4189
+Distance from mic to speaker 1 m
+Mics where position as close as possible to validate left and right channel 
+
+REC61-65 -> PLAYED ESS3S 0dB AFE 0dB SPEAKER  
+REC68-70 -> PLAYED ESS3S 0dB AFE AROUND -15dB SPEAKER  
+REC61-65 -> PLAYED ESS3S -10dB AFE AROUND -15dB SPEAKER  
+REC71-73 -> PLAYED ESS3S -10dB AFE AROUND -15dB SPEAKER 
+REC74-75 -> PLAYED ESS3S 20dB AFE AROUND -15dB SPEAKER (AFTER 3S RELEVANT NOISE OF SOURCE 24V)
+REC77-78 -> PLAYED ESS3S 40dB AFE AROUND -15dB SPEAKER (AFTER 3S RELEVANT NOISE OF SOURCE 24V)
+REC81-84 -> PLAYED ESS3S 0dB AFE AROUND -15dB SPEAKER 
+REC85 -> PLAYED ESS3S 0dB AFE 0dB SPEAKER 
+REC86 -> PLAYED ESS3S -10dB AFE 0dB SPEAKER 
+REC91 -> NO SOURCE 0dB AFE    
+REC93 -> NO SOURCE 0dB AFE NOISE INTRODUCED BY JOINING GND FROM POWER SUPPLY PCB TO STM32    
+REC96-97 -> DUMMY MICROPHONE CONNECTED TO LEFT CHANNEL (valid audio from 0 to 1.90s) 0dB analog front end    
+ 
+If needed to validate this use: D:\EMECS\THESIS_RESULTS\AUDIO_ANALYSIS: Measurements of a small tweeter at 1m, as well as code to estimate reverberation time in 1/3-octave bands from impulse responses.
+• A measured file, M0001_S01_R01.ETX, which is a tweeter measured at 1m distance. The model is SEAS H615. 
+• A Matlab script, H615_Script_singleIRfile.m, which reads the file (using the function readetxfile.m which is also attached) and plots the IR and FR.
+Note that the suggested time window for the FFT is sampels no. 1 - 189. It gives a very smooth response. 
+• A Matlab function, calcT60_bands.m, which calculates the T60-values for a number of frequency bands. Please try to use it, and tell me if the help text is adequate!

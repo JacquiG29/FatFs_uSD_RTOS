@@ -512,8 +512,13 @@ int32_t FS_ReadAlarmList(void) {
 						== HAL_OK) {
 					char msg[60];
 					sprintf(msg,
-							"\r\nNext Alarm set for Day %02d at %02d:%02d:%02d\r\n",
+							"Next Alarm set for Day %02d at %02d:%02d:%02d",
 							next_day, next_hour, next_min, next_sec);
+
+					UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+					UTIL_LCD_SetFont(&Font16);
+					UTIL_LCD_DisplayStringAt(0, 170, (uint8_t*) msg, CENTER_MODE);
+
 					HAL_UART_Transmit(&huart3, (uint8_t*) msg, strlen(msg),
 					HAL_MAX_DELAY);
 					return 0; // Success

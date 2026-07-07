@@ -31,9 +31,10 @@
 /*===========================================================================*/
 /*                     SET THIS BEFORE FLASHING                              */
 /*===========================================================================*/
-#define RECORD_DURATION_SECONDS 30
-int INPUT_GAIN = 100;//values from 0 to 100 accepted
-const TCHAR *audio_play = "PINK30.WAV";//max 8 characters name
+#define RECORD_DURATION_SECONDS 8
+
+int INPUT_GAIN = 80;//values from 0 to 100 accepted
+const TCHAR *audio_play = "ESS3S.WAV";//max 8 characters name
 /* WAV FILES NAMES:
  * ESS_F
  * SIN_1KL
@@ -42,6 +43,8 @@ const TCHAR *audio_play = "PINK30.WAV";//max 8 characters name
  * PIANO1
  * PINK30
  * PINKOFF
+ * ESS5S
+ * ESS3S
  * */
 /*
  * NT_TWIN
@@ -58,7 +61,7 @@ const TCHAR *audio_play = "PINK30.WAV";//max 8 characters name
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* Defines */
-char version[10] = "1.3.11";
+char version[10] = "1.3.12";
 uint8_t system_mode = 2; //Standalone: 0, Distributed node: 1, Not set: 2
 UART_HandleTypeDef huart3;
 RTC_HandleTypeDef hrtc;
@@ -463,10 +466,10 @@ static void MX_GPIO_Init(void) {
 	__HAL_RCC_GPIOG_CLK_ENABLE();
 	__HAL_RCC_GPIOE_CLK_ENABLE();
 
-	/* ----- ARD_D2 (PG3) and ARD_D4 (PG4) as inputs, pull-down ----- */
+	/* ----- ARD_D2 (PG3) and ARD_D4 (PG4) as inputs, pull-up ----- */
 	GPIO_InitStruct.Pin = ARD_D2_PIN | ARD_D4_PIN;
 	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(ARD_D2D4_PORT, &GPIO_InitStruct);
 
@@ -639,6 +642,11 @@ static void SD_Write_Task(void *argument) {
 		}
 		g_FileIndex = max_index + 1;
 		sprintf(msg, "Next file index: REC_%02lu.WAV\r\n", g_FileIndex);
+		//New screen display
+		UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+		UTIL_LCD_SetFont(&Font16);
+		UTIL_LCD_DisplayStringAt(0, 190, (uint8_t*) msg, CENTER_MODE);
+
 		UART_Print(msg);
 	}
 
@@ -1048,19 +1056,29 @@ static void System_Controller_Task(void *argument) {
 			uint8_t config = (d4 << 1) | d2;
 
 			switch (config) {
-			case 0x01: /* ARD_D4=0, ARD_D2=1 → RECORD */
+			case 0x02: /* ARD_D4=1, ARD_D2=0 → RECORD */
 				UART_Print("EXTI: Start recording\r\n");
+				UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+				UTIL_LCD_SetFont(&Font16);
+	            UTIL_LCD_DisplayStringAt(0, 150, (uint8_t*)"RECORD MODE", CENTER_MODE);
 				g_Mode = MODE_RECORD;
 				g_ButtonPressed = 1;
 				break;
 
-			case 0x02: /* ARD_D4=1, ARD_D2=0 → PLAY */
+			case 0x01: /* ARD_D4=0, ARD_D2=1 → PLAY */
 				UART_Print("EXTI: Start Playing\r\n");
+				UTIL_LCD_ClearStringLine(150);
+				UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+				UTIL_LCD_SetFont(&Font16);
+				UTIL_LCD_DisplayStringAt(0, 150, (uint8_t*)"PLAY MODE", CENTER_MODE);
 				g_Mode = MODE_PLAY;
 				g_ButtonPressed = 1;
 				break;
-			case 0x03: /* ARD_D4=1, ARD_D2=1 → FULL_DUPLEX */
+			case 0x00: /* ARD_D4=0, ARD_D2=0 → FULL_DUPLEX */
 				UART_Print("EXTI: Start fullduplex\r\n");
+				UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+				UTIL_LCD_SetFont(&Font16);
+				UTIL_LCD_DisplayStringAt(0, 150, (uint8_t*)"FULLDUPLEX MODE", CENTER_MODE);
 				g_Mode = MODE_FULL_DUPLEX;
 				g_ButtonPressed = 1;
 				break;

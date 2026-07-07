@@ -28,6 +28,7 @@ with the sweep's matched inverse filter (Farina method) to recover the system
 | **Latency vs frame size** | `sweep_frame_size` | fit latency = slope·frame + intercept (pipeline depth + codec group delay) |
 | **Intermodulation (IMD)** | `measure_imd` | twin-tone / SMPTE distortion the ESS harmonics and single-tone THD miss |
 | **DC / offset** | `check_dc` | residual DC bias, idle noise floor, rail/clipping diagnosis |
+| **Dropouts / glitches** | `check_dropouts` | held-sample runs (underrun fill) and local-outlier splices (dropped buffers) |
 
 ### Choosing a test signal
 
@@ -89,6 +90,14 @@ New-Tests/
   sweep_frame_size.m        latency vs DMA frame size (pipeline depth fit)
   measure_imd.m             two-tone intermodulation distortion
   check_dc.m                DC offset / noise floor / rail diagnosis
+  check_dropouts.m          held-run / splice glitch detector
+  measure_ir_wav.m          acoustic IR/FR by FFT-division vs the actual played WAV
+  ess_fr_overlay.m          ESS_F vs (aliased) ESS5S/ESS3S FR overlay
+  analyze_REC02.m           full REC02 campaign driver (test matrix + dropouts)
+  analyze_anechoic.m        anechoic-chamber deconvolution + reference validation
+  batch_anechoic.m          all anechoic conditions: AFE-gain sweep, noise floor
+  reference_helpers/        reconstructed findinit/backint/contwo/sg14/seth
+                            (missing dependencies of the shared calcT60_bands.m)
   gen_test_signals.m        generate sweep / tone / DC stimuli (matched)
   gen_pulse_train.m         generate Hann-windowed burst train
   gen_two_tone.m            generate twin-tone / SMPTE stimulus
@@ -184,10 +193,17 @@ gen_test_signals(sweep, Placement='R', Prefix='NT');
   `+ams/+internal/farina_core.m`, so the generated stimulus and the inverse
   filter are always consistent. If you analyze *existing* recordings, set the
   sweep parameters to whatever produced them.
-- **Formula fix.** The original `utils_master.py` `get_sine_sweep` placed the
-  `-1` outside the sweep's phase term. The MATLAB port uses the corrected
-  Farina expression (matching the project's own `gen_sine.m`); inverse filter
-  and INR logic are otherwise faithful to the Python.
+- **Formula fix / legacy mode.** The original `utils_master.py` `get_sine_sweep`
+  placed the `-1` outside the sweep's phase term and rounded `L` to an integer.
+  The default MATLAB port uses the corrected Farina expression (matching the
+  project's own `gen_sine.m`). For recordings of sweeps made with the *original*
+  Python generator (e.g. ESS5S / ESS3S: f1=20, f2=20000, sil=0), pass
+  `measure_ir(..., Legacy=true)` to use `ams.get_sine_sweep_legacy` /
+  `ams.get_inverse_filter_legacy`, which replicate the Python bit-for-bit.
+  Note: the ESS5S/ESS3S recordings in the REC02 campaign were played back at
+  ~2x their sample rate (48 kHz file played ~96 kHz), so their sweeps alias
+  around Nyquist; deconvolve them against a 2x-rate-corrected reference, or
+  re-record with matched playback, before trusting their frequency response.
 - **Raw recordings.** `read_audio.m` falls back to headerless int16 PCM (as in
   `../analyze_audio.py`) if `audioread` cannot parse a firmware-written `.WAV`.
 - **Pulse-train latency vs ESS latency.** The ESS deconvolution gives the more

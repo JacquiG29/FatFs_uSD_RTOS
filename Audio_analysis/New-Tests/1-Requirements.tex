@@ -1,0 +1,66 @@
+\chapter{Requirements and Specifications} \label{Requirements}
+
+This chapter defines the system requirements that guide the design and validation of the distributed acoustic measurement platform developed in this project. The requirements describe the intended system behavior and the operational constraints arising from the targeted measurement scenario, without prescribing specific implementation choices. They provide the basis for the architectural decisions and experimental validation presented in the following chapters. The final section then translates these requirements into measurable, testable specifications that describe how each is satisfied by the implemented system.
+
+\section{Functional Requirements}
+
+The system shall operate as a distributed, wireless measurement platform composed of autonomous nodes. The following functional requirements define the expected behavior of the system:
+
+\begin{itemize}
+  \item The system shall operate in a master--slave configuration, where a master node initiates and coordinates the measurement process.
+
+  \item The master node shall transmit a start command containing synchronization information to one or more slave nodes.
+
+  \item Nodes shall initiate audio recording in temporal alignment with the acoustic excitation.
+
+  \item One node in the system shall reproduce a predefined logarithmic sine sweep as the excitation signal during the measurement.
+
+  \item Each node shall support concurrent wireless communication, audio playback and/or recording, and local data storage without loss of functionality.
+
+  \item Recorded audio data shall be stored locally on each node for offline retrieval and post-processing.
+\end{itemize}
+
+\section{Non-Functional Requirements}
+
+The system is subject to a set of performance and operational constraints that influence platform selection and system architecture:
+
+\begin{itemize}
+  \item The audio subsystem shall support a minimum sampling rate of 48~kHz and audio resolutions between 16 and 24 bits.
+
+  \item The audio acquisition chain shall support a wide dynamic range through appropriate front-end design and configurable gain settings, enabling measurements under varying acoustic conditions.
+
+  \item The system shall support event-based synchronization with response times on the order of microseconds, enabling repeatable temporal alignment between distributed nodes.
+
+  \item Wireless communication shall operate independently of existing infrastructure and support reliable operation over distances on the order of one kilometer in cluttered or non-line-of-sight environments.
+
+  \item Wireless communication shall prioritize low, bounded latency for control and synchronization messages over high data throughput.
+
+  \item All system nodes shall be portable and battery-powered, supporting extended autonomous operation suitable for field measurements.
+\end{itemize}
+
+\section{Specifications}
+
+The following specifications translate the requirements above into measurable and testable technical statements describing how they are satisfied by the implemented system.
+
+\subsection{Functional Specifications}
+
+\begin{itemize}
+    \item Audio I/O: full-duplex audio I/O at 48~kHz, 16-bit resolution (24-bit as an optional higher-resolution mode).
+    \item Master node shall broadcast a start command with a timestamp for synchronization.
+    \item Power: 3S1P lithium-ion pack, 11.1~V nominal, $\geq 3.35$~Ah ($\approx 37$~Wh); USB-C charging.
+    \item Synchronization: sub-GHz radio (IEEE~802.15.4g), maximum range 1000~m, timing offset $\leq 1~\mu$s.
+    \item Startup diagnostics: self-test $<5$~s; verification of memory, codec, amplifiers, and wireless module; user-triggered 1~kHz loopback tone.
+    \item Storage: microSD card with a defined WAV file format; sustained write speed and buffering to ensure uninterrupted recording.
+\end{itemize}
+
+\subsection{Non-Functional Specifications}
+
+\begin{itemize}
+    \item Converter: ADC and DAC operating at 48~kHz, 16/24-bit resolution (the DAC additionally supports 96~kHz).
+    \item Signal generation: 20~Hz--20~kHz logarithmic sine sweep, duration 5--10~s.
+    \item Microphone bias: constant current 4.0~mA $\pm 5\%$; compliance voltage $\geq 12$~V, provided by a 24~V bias rail.
+    \item Wireless control: sub-GHz (IEEE~802.15.4g); range $\geq 1$~km NLOS; packet error rate $\leq 1\%$ with FEC and ACK/retry.
+    \item Latency: audio round-trip latency shall be fixed and repeatable (deterministic to within one sample), enabling compensation during post-processing.
+    \item Data storage: 2~channels, 48~kHz, 16-bit $\approx 0.691$~GB/h; microSD capacity $\geq 16$~GB.
+    \item Programmable gain control: selectable analog signal-conditioning paths with nominal gains of $-10$, $0$, $+20$, and $+40$~dB.
+\end{itemize}

@@ -1,0 +1,1655 @@
+\chapter{Results}\label{chap:results}
+
+%The results chapter should simply present the results of applying the methods presented in the method chapter without further ado. This chapter will typically contain many graphs, tables, etc. Sometimes it is natural to discuss the results as they are presented, combining them into a `Results and Discussion' chapter, but more often they are kept separate.
+
+
+This chapter presents the results obtained from the experimental and analytical evaluations described in Chapter~\ref{chap:method}. It opens with the resulting node architecture and data flow, and then reports the results subsystem by subsystem: the wireless link, the synchronization timing, the power supply, and the audio acquisition chain. The audio results follow the staged validation of Chapter~\ref{chap:method}, from the codec baseline (Stage~1) and the standalone analog front end (Stage~2) to the integrated electrical (Stage~3) and integrated acoustic (Stage~4) measurements. Throughout, experimental results obtained from direct measurements are distinguished from analytical assessments derived from component specifications, the latter used to extrapolate system behavior beyond the tested configurations.
+
+
+\section{Resulting System Architecture and Data Flow}
+\label{sec:results_architecture}
+
+\begin{figure}[htbp]  % order of priority: h here, t top, b bottom, p page
+  \centering
+  \includegraphics[width=1\textwidth]{figures/RF_IR_nodes.drawio.png}
+  \caption[Final Design Architecture]{Diagram of the resulting architecture.}
+  \label{fig:rf_ir_nodes}
+\end{figure}
+
+
+
+Figure~\ref{fig:rf_ir_nodes} summarizes the resulting node-level architecture obtained by applying the design methodology in Chapter~\ref{chap:method}. The final implementation converged to a heterogeneous node in which time-critical audio acquisition is isolated from wireless communication and synchronization, and where the interaction between both domains is reduced to a small set of hardware-trigger signals.
+
+From left to right, the architecture shows the complete acquisition and actuation chain. The acoustic sensor signal is first adapted by a dedicated analog front-end that provides the required constant-current excitation and AC coupling. The conditioned signal is then digitized by the WM8994 codec and streamed to the STM32H735IG through the SAI interface, while codec configuration is performed over I\textsuperscript{2}C. This split clearly separates (i) continuous high-rate sample transport (SAI) from (ii) low-rate control transactions (I\textsuperscript{2}C), which simplifies timing analysis of the audio path.
+
+On the processing side, the STM32 is responsible for deterministic real-time acquisition and for storing the recorded WAV data on an SD card. No filtering or analysis is performed on the microcontroller itself, since impulse-response deconvolution and all subsequent processing are carried out offline, which is why the recordings are retained. In parallel, the CC1352Px provides the sub-GHz link and implements the ping--pong exchange used for synchronization and OWT estimation. The two subsystems interact only through GPIO, meaning that radio activity (protocol handling, packet timing, retransmissions) does not share a software execution context with the audio streaming tasks.
+
+
+
+\section{Experimental Wireless Link Results}
+\label{sec:results_rf_link}
+
+This section presents experimental results obtained from outdoor  measurements of the wireless link using the integrated antenna of the CC1352Px. The objective of these experiments is to evaluate link robustness under conservative conditions and to provide an empirical basis for the analytical range evaluation.
+
+\subsubsection{Integrated-Antenna LOS Range Results}
+
+The master and slave wireless boards were positioned approximately 1~m above ground level and maintained in a fixed orientation. From a separation of 100~m onward, under approximately clear \acrshort{los} conditions, 50 request--response transactions were initiated at intervals of approximately 10~m.
+
+Successful communication was verified using the status indicators implemented in both nodes. The slave indicated correct packet reception, while the master indicated successful completion of the complete request--response transaction. Missing responses, incomplete exchanges, and incorrectly decoded packets produced an error indication.
+
+Figure~\ref{fig:integrated_los_route} shows the outdoor route used during the experiment. The indicated distance of approximately 150.83~m is located near the region where the transaction success rate began to decrease.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\linewidth]{figures/integrated_antenna_los_route.png}
+    \caption{Outdoor route used for the integrated-antenna \acrshort{los} range test.}
+    \label{fig:integrated_los_route}
+\end{figure}
+
+Figure~\ref{fig:integrated_los_success} presents the percentage of successfully completed transactions as a function of distance. 50 transactions were initiated at each measurement position.
+
+\begin{figure}[!h]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/integrated_antenna_los_success_rate.png}
+    \caption{Successful request--response transactions under approximately clear \acrshort{los} conditions. 50 transactions were initiated at each measurement position.}
+    \label{fig:integrated_los_success}
+\end{figure}
+
+All transactions were completed successfully at the measurement positions from 100~m to 140~m, corresponding to a success rate of 100\%. At 150~m, 49 of the 50 transactions were completed successfully, corresponding to 98\%. The success rate subsequently decreased to 94\% at 160~m, 78\% at 170~m, 44\% at 180~m, and 14\% at 190~m. At 200~m, no request--response transaction was completed successfully.
+
+The measured success rate remained at above 98\% up to 150~m and decreased progressively at greater separations.
+
+
+
+\subsubsection{Integrated-Antenna Terrain-Obstructed NLOS Results}
+
+The terrain-obstructed \acrshort{nlos} experiment was performed along the outdoor route shown in Figure~\ref{fig:terrain_nlos_route}. The master remained at a fixed position, while the two slave nodes were placed at separations of 100, 110, and 120~m. Both slaves were located at the same nominal distance from the master, with the antennas positioned approximately 1~m above ground level and maintained in a fixed orientation.
+
+At each distance, 500 request--response transactions were initiated. The master alternated between the two slave nodes, resulting in 250 initiated transactions per slave. A transaction was considered successful when the complete request--response exchange was received and validated by the master.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/terrain_nlos_route.png}
+    \caption{Outdoor route used for the integrated-antenna terrain-obstructed \acrshort{nlos} experiment.}
+    \label{fig:terrain_nlos_route}
+\end{figure}
+
+The transaction results for both slave nodes are summarized in Table~\ref{tab:terrain_nlos_transactions}. Figure~\ref{fig:terrain_nlos_success} shows the corresponding variation in success rate with distance.
+
+\begin{table}[h]
+    \centering
+    \caption{Transaction results for the terrain-obstructed \acrshort{nlos} experiment.}
+    \label{tab:terrain_nlos_transactions}
+    \begin{tabular}{|c|c|r|r|r|r|}
+        \hline
+        \textbf{Distance} &
+        \textbf{Slave} &
+        \textbf{Initiated} &
+        \textbf{Successful} &
+        \textbf{Success rate} &
+        \textbf{PER} \\
+        \textbf{[m]} & & & & \textbf{[\%]} & \textbf{[\%]} \\
+        \hline
+        100 & 1 & 250 & 249 & 99.6 & 0.4 \\
+        \hline
+        100 & 2 & 250 & 248 & 99.2 & 0.8 \\
+        \hline
+        110 & 1 & 250 & 222 & 88.8 & 11.2 \\
+        \hline
+        110 & 2 & 250 & 220 & 88.0 & 12.0 \\
+        \hline
+        120 & 1 & 250 & 187 & 74.8 & 25.2 \\
+        \hline
+        120 & 2 & 250 & 188 & 75.2 & 24.8 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{figures/terrain_nlos_success_rate.png}
+    \caption{Percentage of successfully completed request--response transactions under terrain-obstructed \acrshort{nlos} conditions. A total of 250 transactions was initiated for each slave at every measurement distance.}
+    \label{fig:terrain_nlos_success}
+\end{figure}
+
+The one-way time was recorded for every successfully completed transaction. Consequently, the number of timing samples was equal to the number of successful exchanges obtained for each slave. 
+
+Figure~\ref{fig:terrain_nlos_owt_distribution} shows the discrete distribution of the recorded one-way-time values. Since the firmware reports the timing result in integer microseconds, the measurements are distributed among the five recorded values from 3981 to 3985~\textmu s.
+
+\begin{figure}[!h]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/terrain_nlos_owt_distributions.png}
+    \caption{Discrete distribution of the one-way-time measurements obtained from completed transactions at 100, 110, and 120~m, with a resolution of 1~\textmu s.}
+    \label{fig:terrain_nlos_owt_distribution}
+\end{figure}
+
+Table~\ref{tab:terrain_nlos_owt} summarizes the one-way-time measurements. The mean values ranged from 3982.41 to 3982.59~\textmu s, while the standard deviations ranged from 1.31 to 1.37~\textmu s. The minimum and maximum recorded values were 3981 and 3985~\textmu s for both slaves at every distance.
+
+\begin{table}[h]
+    \centering
+    \caption{One-way-time statistics for the terrain-obstructed \acrshort{nlos} experiment.}
+    \label{tab:terrain_nlos_owt}
+    \begin{tabular}{|c|c|c|c|c|c|}
+        \hline
+        \textbf{Distance} &
+        \textbf{Slave} &
+        \textbf{Samples} &
+        \textbf{Mean} &
+        \textbf{Std. dev.} &
+        \textbf{Range} \\
+        \textbf{[m]} & & &
+        \textbf{[\textmu s]} &
+        \textbf{[\textmu s]} &
+        \textbf{[\textmu s]} \\
+        \hline
+        100 & 1 & 249 & 3982.49 & 1.35 & 3981--3985 \\
+        \hline
+        100 & 2 & 248 & 3982.46 & 1.33 & 3981--3985 \\
+        \hline
+        110 & 1 & 222 & 3982.41 & 1.37 & 3981--3985 \\
+        \hline
+        110 & 2 & 220 & 3982.42 & 1.31 & 3981--3985 \\
+        \hline
+        120 & 1 & 187 & 3982.59 & 1.37 & 3981--3985 \\
+        \hline
+        120 & 2 & 188 & 3982.58 & 1.35 & 3981--3985 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+
+\subsubsection{External-Antenna Long-Range Results}
+
+The external-antenna experiment was performed along the outdoor route shown in Figure~\ref{fig:external_antenna_route}. The route was primarily open and free of buildings along the propagation path, although changes in terrain elevation were present between the node locations. The maximum tested separation was approximately 1.25~km.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.85\linewidth]{figures/external_antenna_route.png}
+    \caption{Outdoor route used for the external-antenna long-range experiment.}
+    \label{fig:external_antenna_route}
+\end{figure}
+
+Measurements were performed with the nodes stationary at separations of 100, 250, 350, 500, 950, and approximately 1250~m. At each position, 50 request--response transactions were initiated. Transmissions generated while the nodes were being repositioned were excluded from the reported measurements because the node position and antenna orientation were not controlled during movement.
+
+The transaction results are summarized in Table~\ref{tab:external_antenna_results}. All 50 transactions were completed successfully at distances from 100 to 500~m. At 950~m, 48 transactions were completed successfully, corresponding to a success rate of 96\% and a packet error rate of 4\%. At approximately 1250~m, 47 transactions were completed successfully, corresponding to a success rate of 94\% and a packet error rate of 6\%.
+
+\begin{table}[h]
+    \centering
+    \caption{Transaction results for the external-antenna long-range experiment.}
+    \label{tab:external_antenna_results}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        \textbf{Distance} &
+        \textbf{Initiated} &
+        \textbf{Successful} &
+        \textbf{Success rate} &
+        \textbf{PER} \\
+        \textbf{[m]} & & & \textbf{[\%]} & \textbf{[\%]} \\
+        \hline
+        100  & 50 & 50 & 100 & 0 \\
+        \hline
+        250  & 50 & 50 & 100 & 0 \\
+        \hline
+        350  & 50 & 50 & 100 & 0 \\
+        \hline
+        500  & 50 & 50 & 100 & 0 \\
+        \hline
+        950  & 50 & 48 & 96 & 4 \\
+        \hline
+        1250 & 50 & 47 & 94 & 6 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+At the maximum tested separation, the synchronization command was transmitted to the remote node, executed, and acknowledged through the return packet.
+
+
+
+\subsubsection{Wooded NLOS Results}
+
+The wooded \acrshort{nlos} experiment was performed along the route shown in Figure~\ref{fig:wooded_nlos_route}. The path included vegetation, terrain variation, and natural obstructions between the node positions. The antennas were placed approximately 1~m above ground level. The experiment was performed under rainy conditions, and one of the nodes was placed under a bus-stop shelter because the wireless board was not protected against water exposure.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\linewidth]{figures/wooded_nlos_route.png}
+    \caption{Route used for the wooded \acrshort{nlos} experiment.}
+    \label{fig:wooded_nlos_route}
+\end{figure}
+
+At each measurement position, 10 packets were transmitted. The results near the communication limit are summarized in Table~\ref{tab:wooded_nlos_results}.
+
+\begin{table}[h]
+    \centering
+    \caption{Packet results for the wooded \acrshort{nlos} experiment.}
+    \label{tab:wooded_nlos_results}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        \textbf{Distance} &
+        \textbf{Transmitted} &
+        \textbf{Received} &
+        \textbf{Lost} &
+        \textbf{Success rate} \\
+        \textbf{[m]} & & & & \textbf{[\%]} \\
+        \hline
+        300 & 10 & 9 & 1 & 90 \\
+        \hline
+        350 & 10 & 7 & 3 & 70 \\
+        \hline
+        380 & 10 & 0 & 10 & 0 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+At 300~m, 9 of the 10 transmitted packets were received. At 350~m, communication was still maintained, although 3 of the 10 packets were lost. At approximately 380~m, no transmitted packets were received.
+
+Under the tested rainy wooded-\acrshort{nlos} conditions, the last position with maintained communication was approximately 350~m.
+
+
+\section{Experimental Synchronization Results}
+\label{sec:results_sync}
+
+This section presents experimental results obtained from laboratory measurements of the synchronization mechanism. The objective of these experiments is to quantify the temporal alignment achieved between master and slave nodes and to evaluate compliance with the microsecond-level timing requirement.
+
+
+\subsubsection{Laboratory Multi-Node Validation}
+
+The laboratory synchronization measurement was performed using one master node and three slave nodes. The synchronization outputs generated on DIO19 were connected simultaneously to the four channels of a Rohde \& Schwarz RTB2004 oscilloscope. Channel C1 corresponded to the master, while channels C2, C3, and C4 corresponded to Slave~1, Slave~2, and Slave~3, respectively.
+
+The rising edge of each output pulse was used to determine the synchronization instant. The subsequent falling edge only returned the output to its inactive state in preparation for the next synchronization event and was therefore not included in the timing comparison. The offset for each slave was calculated relative to the master rising edge as
+
+\begin{equation}
+    \Delta t_i = t_i-t_{\mathrm{master}},
+    \qquad i\in\{1,2,3\}.
+    \label{eq:laboratory_sync_offset}
+\end{equation}
+
+A total of 50 synchronization events was measured. Figure~\ref{fig:laboratory_multinode_capture} shows one representative oscilloscope capture. The horizontal scale was \(5~\textmu s/\mathrm{div}\), and the displayed sampling rate was \(1.25~\mathrm{GSa/s}\).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{figures/laboratory_multinode_capture.PNG}
+    \caption{Laboratory synchronization measurement after the timing adjustment. C1 corresponds to the master output. C2, C3, and C4 correspond to the outputs of Slave~1, Slave~2, and Slave~3, respectively.}
+    \label{fig:laboratory_multinode_capture}
+\end{figure}
+
+The timing adjustment reduced the absolute offset of each slave output by approximately \(15~\textmu s\) without changing the measured offset variation. Table~\ref{tab:laboratory_multinode_results} summarizes the resulting measurements. The minimum observed offset was \(-10.0~\textmu s\), while the maximum was \(+9.9~\textmu s\).
+
+\begin{table}[h]
+    \centering
+    \small
+    \caption{Slave-output timing offsets relative to the master rising edge after the timing adjustment.}
+    \label{tab:laboratory_multinode_results}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{|c|c|c|c|c|c|c|}
+        \hline
+        \textbf{Signal} &
+        \textbf{Samples} &
+        \textbf{Mean} &
+        \textbf{Std. dev.} &
+        \textbf{Minimum} &
+        \textbf{Maximum} &
+        \textbf{Maximum absolute} \\
+        &
+        &
+        \textbf{[\textmu s]} &
+        \textbf{[\textmu s]} &
+        \textbf{[\textmu s]} &
+        \textbf{[\textmu s]} &
+        \textbf{[\textmu s]} \\
+        \hline
+        C2--C1 & 50 & -4.28 & 7.24 & -9.8 & +9.2 & 9.8 \\
+        \hline
+        C3--C1 & 50 & +5.50 & 7.26 & -4.2 & +9.9 & 9.9 \\
+        \hline
+        C4--C1 & 50 & +1.15 & 5.87 & -10.0 & +9.5 & 10.0 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+All 150 slave-to-master offset measurements remained within the interval
+
+\begin{equation}
+    -10~\textmu s
+    \leq
+    \Delta t_i
+    \leq
+    +10~\textmu s.
+    \label{eq:laboratory_sync_window}
+\end{equation}
+
+
+\subsubsection{Remote Synchronization Results}
+
+Two slave nodes equipped with the integrated PCB antennas were positioned approximately 100~m from the master. The DIO19 synchronization outputs of both slaves were measured simultaneously after reception of the same wireless synchronization command using an ADALM2000.
+
+Figure~\ref{fig:remote_sync_100m} shows a representative measurement. The horizontal scale was \(5~\textmu s/\mathrm{div}\), and the rising edges of the two slave outputs were separated by approximately \(6.5~\textmu s\).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\linewidth]{figures/remote_sync_100m.png}
+    \caption{Synchronization measurement between two slave nodes located approximately 100~m from the master using the integrated PCB antennas.}
+    \label{fig:remote_sync_100m}
+\end{figure}
+
+Across the repeated measurements, the absolute timing difference between the two slave outputs remained below \(10~\textmu s\).
+
+
+\subsubsection{Inter-Board Trigger Timing Results}
+
+The inter-board trigger timing was measured between the CC1352Px trigger output and the STM32H735 response output. Figure~\ref{fig:inter_board_trigger_timing} shows a representative oscilloscope capture. The horizontal scale was \(1~\textmu s/\mathrm{div}\), and the displayed sampling rate was \(1.25~\mathrm{GSa/s}\).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.85\linewidth]{figures/inter_board_trigger_timing.png}
+    \caption{Measured delay between the CC1352Px trigger output and the STM32H735 response output.}
+    \label{fig:inter_board_trigger_timing}
+\end{figure}
+
+As shown in \ref{tab:inter_board_trigger_delay}, the measured delay in the representative capture was approximately \(5.53~\textmu s\). The measurement was repeated for 20 trigger events. Across the repetitions, the delay remained close to \(5.5~\textmu s\), with an observed variation of approximately \(0.03~\textmu s\).
+
+\begin{table}[h]
+    \centering
+    \caption{Inter-board trigger delay between the CC1352Px and STM32H735 boards.}
+    \label{tab:inter_board_trigger_delay}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{|c|c|}
+        \hline
+        \textbf{Quantity} & \textbf{Measured value} \\
+        \hline
+        Number of trigger events & 20 \\
+        \hline
+        Delay & \(\approx 5.5~\textmu s\) \\
+        \hline
+        Observed variation & \(\approx 0.03~\textmu s\) \\
+        \hline
+    \end{tabular}
+\end{table}
+
+The measured delay corresponds to the local digital response time between the wireless-controller trigger and the audio-controller response output. This measurement does not include the analog front end, codec processing, loudspeaker response, or acoustic propagation path.
+
+
+\section{Power-Supply Results}
+\label{sec:power_supply_results}
+
+This subsection presents the experimental validation of the implemented power-supply board. The measurements include the initial DC regulation of the three output rails, the time- and frequency-domain characterization of the analog supply rails, the temperature dependence of the 4~mA microphone current source, and the battery-side current and autonomy of the integrated system. The tests were performed using the assembled prototype and the 3S1P lithium-ion battery pack selected for the measurement node.
+
+\subsection{Initial Electrical Inspection and DC Regulation}
+
+Following assembly, the power-supply board was visually inspected before applying power. Figure~\ref{fig:assembled_power_board} shows the assembled prototype used during the electrical measurements.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/assembled_power_board.png}
+    \caption{Assembled power-supply prototype used during the electrical validation.}
+    \label{fig:assembled_power_board}
+\end{figure}
+
+The board was supplied using the 3S1P lithium-ion battery pack selected for the measurement node. The three regulated output rails were measured directly at their corresponding output connections during the initial power-up.
+
+
+The measured DC output voltages are summarized in Table~\ref{tab:measured_dc_outputs}. The peak-to-peak values correspond to the variation observed with the board supplied from the 3S1P battery pack.
+
+\begin{table}[h]
+    \centering
+    \small
+    \caption{Measured output voltages during the initial electrical inspection.}
+    \label{tab:measured_dc_outputs}
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        \textbf{Rail} &
+        \textbf{Nominal} &
+        \textbf{Mean} &
+        \textbf{Peak-to-peak variation} &
+        \textbf{Deviation} \\
+        &
+        \textbf{[V]} &
+        \textbf{[V]} &
+        \textbf{[mV]} &
+        \textbf{[\%]} \\
+        \hline
+        3.3~V &
+        3.30 &
+        3.30003 &
+        5.33 &
+        +0.001 \\
+        \hline
+        7.4~V &
+        7.44 &
+        7.4660 &
+        $0.34$ &
+        +0.35 \\
+        \hline
+        24~V &
+        24.00 &
+        24.0323 &
+        $0.09$ &
+        +0.13 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+The mean values of the three rails remained close to their corresponding nominal values. The deviations from nominal were
+
+\begin{equation}
+\epsilon_{3.3} = \frac{3.30003 - 3.30}{3.30}\times 100 \approx 0.001\%, \qquad
+\epsilon_{7.4} = \frac{7.4660 - 7.44}{7.44}\times 100 \approx 0.35\%,
+\end{equation}
+\begin{equation}
+\epsilon_{24} = \frac{24.0323 - 24.00}{24.00}\times 100 \approx 0.13\%,
+\end{equation}
+
+which are small and do not indicate a DC-regulation problem. The buck converters also fall well within the tolerance of the feedback networks. The 3.3~V converter sets its output through
+
+\begin{equation}
+V_{\mathrm{out}} = V_{\mathrm{FB}}\left(1 + \frac{R_1}{R_2}\right),
+\end{equation}
+
+with \(V_{\mathrm{FB}} = 0.8~\mathrm{V}\), \(R_1 = 75~\mathrm{k}\Omega\), and \(R_2 = 24~\mathrm{k}\Omega\); with 1\% resistor tolerance the worst-case divider combinations give approximately 3.25~V to 3.35~V, so the measured 3.30003~V is much closer to nominal than the tolerance limit. The 7.4~V rail uses the same relation with \(R_1 = 390~\mathrm{k}\Omega\) and \(R_2 = 47~\mathrm{k}\Omega\) (the 47~k\(\Omega\) substituted for the initially considered 50~k\(\Omega\) value for availability), giving a calculated output near 7.44~V and a worst-case range of approximately 7.31~V to 7.57~V; the measured 7.4660~V lies inside this range.
+
+The peak-to-peak variations at the output terminals were also small: 5.33~mV on the 3.3~V rail, 0.34~mV on the 7.4~V rail, and 0.09~mV on the 24~V rail, corresponding to approximately 0.16\%, 0.005\%, and 0.0004\% of the respective nominal voltages. This confirms that the board was stable at the DC-output level.
+
+\subsection{Analog-Supply Noise Characterization}
+
+The analog-supply measurements were performed with the power-supply board connected to the 3S1P lithium-ion battery pack. The 3.3~V rail was measured at the connection supplying the operational amplifier, while the 24~V rail was measured after the input filter of the analog board.
+
+The filtering strategy must be inferred from these load-side measurements, since the experiment did not include a direct pre-filter-to-post-filter comparison. Because each stage cannot be quantified independently, the measured spectra represent a lumped system combining the converter, output filter, PCB routing, connected load, and probing setup.
+
+For the buck stages, the 4.7~$\mu$H inductors and two 22~$\mu$F output capacitors per rail were chosen to stay within the AP63200 recommended operating range and to provide current margin. The first-order inductor-ripple estimates were approximately 1.04~A for the 3.3~V rail and 1.30~A for the 7.4~V rail at the maximum battery voltage, values used mainly to verify inductor saturation margin rather than to predict the operating ripple, especially because the converter can enter pulse-frequency modulation under light load. 
+
+With the nominal 44~$\mu$F output capacitance, the ideal capacitive ripple would be on the order of a few millivolts, but the measured noise depends on capacitor ESR and ESL, effective capacitance under DC bias, converter mode, PCB parasitics, and load profile, so the calculated values guide component selection while the final noise behavior must be judged from the measured rails.
+
+A same-node reference acquisition was first performed by connecting the probe tip and ground to the same electrical node. Figure~\ref{fig:oscilloscope_same_node_reference} shows the resulting time-domain trace and FFT spectrum. No dominant spectral components were observed within the analyzed frequency range. Since this acquisition used a different probe attenuation and vertical scale from the supply measurements, it was used only as a qualitative verification that the measurement arrangement did not introduce identifiable spectral peaks.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.75\linewidth]{figures/oscilloscope_same_node_reference.PNG}
+    \caption{Same-node oscilloscope reference acquisition.}
+    \label{fig:oscilloscope_same_node_reference}
+\end{figure}
+
+The unloaded 3.3~V and 24~V outputs were then measured in the time and frequency domains. The FFT span extended from 0 to 20~kHz, with a sampling rate of 40~kSa/s and a resolution bandwidth of 100~Hz. The corresponding results are shown in Figure~\ref{fig:24un} and ~\ref{fig:3.3un}.
+
+\begin{figure}[h]
+    \centering
+        \includegraphics[width=0.85\linewidth]{figures/24V_unloaded.PNG}
+    \caption{24V unloaded power supply FFT.}
+    \label{fig:24un}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+        \includegraphics[width=0.85\linewidth]{figures/3.3V_unloaded.PNG}
+    \caption{3.3V unloaded power supply FFT.}
+    \label{fig:3.3un}
+\end{figure}
+
+
+In the unloaded condition, both time-domain traces remained concentrated around the zero-voltage reference under AC coupling. At a vertical scale of 1~mV/div, the displayed variations remained within approximately the millivolt range. No discrete spectral component clearly exceeded the surrounding spectral floor between 0 and 20~kHz.
+
+The measurements were subsequently repeated with the corresponding loads connected. For the 3.3~V rail, the wireless controller and operational-amplifier supply were connected. For the 24~V rail, both microphone current-source channels were connected, and the measurement was performed after the input filter of the analog board. The loaded measurements used the same FFT span, sampling rate, and 100~Hz resolution bandwidth as the unloaded measurements.
+
+\begin{figure}[h]
+    \centering
+        \includegraphics[width=0.9\linewidth]{figures/24V_loaded.PNG}
+    \caption{24V loaded power supply FFT.}
+    \label{fig:24lo}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\linewidth]{figures/3.3V_loaded.PNG}
+    \caption{3.3V loaded power supply FFT.}
+    \label{fig:3.3lo}
+\end{figure}
+
+For the loaded 24~V rail, the displayed time-domain variation was approximately
+
+\begin{equation}
+    V_{\mathrm{pp},24\mathrm{V}}
+    \approx 27.7~\mathrm{mV}.
+\end{equation}
+
+The corresponding spectrum presented broad local maxima near 9.2~kHz and 17.2~kHz. No dominant low-frequency component was observed within the analyzed band.
+
+For the loaded 3.3~V rail, the displayed time-domain variation was approximately
+
+\begin{equation}
+    V_{\mathrm{pp},3.3\mathrm{V}}
+    \approx 36.9~\mathrm{mV}.
+\end{equation}
+
+The corresponding spectrum presented broad local maxima near 11.4~kHz and 15.2~kHz. No isolated component dominated the complete 0--20~kHz range.
+
+Relative to the rail voltages, these loaded variations correspond to
+
+\begin{equation}
+\frac{27.7~\mathrm{mV}}{24~\mathrm{V}}\times 100 \approx 0.12\%, \qquad
+\frac{36.9~\mathrm{mV}}{3.3~\mathrm{V}}\times 100 \approx 1.12\%,
+\end{equation}
+
+so the 24~V microphone-bias rail remained relatively clean in terms of its voltage level, while the 3.3~V rail was more sensitive in relative terms, as expected for a lower-voltage mixed domain supplying both analog and digital loads. These components fall within the analyzed audio-frequency range and could couple into the analog path, but the electrical measurements alone showed no single dominant component or DC instability, so their effect belongs to the integrated audio-noise analysis rather than to an isolated regulation failure.
+
+The loaded measurements used a vertical scale of 5~mV/div, while the unloaded measurements used 1~mV/div. Therefore, the absolute broadband noise floors were not compared quantitatively. However, all supply measurements used the same FFT span and resolution bandwidth, allowing the presence and approximate frequency of the observed spectral components to be reported.
+
+The unloaded outputs remained close to the measurement floor. Under load, the 24~V and 3.3~V rails presented peak-to-peak variations of approximately 27.7~mV and 36.9~mV, respectively, together with broad spectral components within the upper part of the analyzed audio-frequency range.
+
+
+\subsection{Temperature Stability Results of the 4~mA Current Source}
+
+Figure~\ref{fig:current_source_temperature_results} shows the chamber temperature and the current calculated from the voltage measured across the 50~$\Omega$ load during the complete cooling and heating sequence.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\linewidth]{figures/current_vs_temperature_over_time.pdf}
+    \caption{Measured chamber temperature and current-source output during the cooling and heating sequence.}
+    \label{fig:current_source_temperature_results}
+\end{figure}
+
+At the beginning of the experiment, the chamber temperature was approximately \(21.2~^\circ\mathrm{C}\), and the measured current was \(4.032~\mathrm{mA}\). The current increased as the temperature decreased, reaching a maximum of \(4.383~\mathrm{mA}\) near \(-20.2~^\circ\mathrm{C}\). This corresponds to a deviation of approximately \(+9.6\%\) from the nominal 4~mA value.
+
+During the heating sequence, the measured current decreased progressively. The minimum recorded current was \(3.698~\mathrm{mA}\) at approximately \(60.4~^\circ\mathrm{C}\), corresponding to a deviation of approximately \(-7.6\%\). Across the complete measured temperature range, the current therefore remained between \(3.698\) and \(4.383~\mathrm{mA}\).
+
+Across the complete temperature interval, the current changed by
+
+\begin{equation}
+    \Delta I = 3.698~\mathrm{mA} - 4.383~\mathrm{mA}
+          = -0.685~\mathrm{mA},
+\end{equation}
+
+over a temperature change of
+
+\begin{equation}
+    \Delta T = 60.4~^\circ\mathrm{C} - (-20.2~^\circ\mathrm{C})
+              = 80.6~^\circ\mathrm{C}.
+\end{equation}
+
+The average temperature coefficient is therefore
+\begin{equation}
+    \frac{\Delta I}{\Delta T}
+    =
+    \frac{-0.685~\mathrm{mA}}{80.6~^\circ\mathrm{C}}
+    \approx -8.5~\mu\mathrm{A}/^\circ\mathrm{C}.
+\end{equation}
+
+This corresponds to approximately \(-0.21\%/^\circ\mathrm{C}\) relative to the nominal 4~mA current. The coefficient is essentially the same on the cooling and heating segments, confirming a nearly linear dependence. For a \(10~^\circ\mathrm{C}\) ambient change the expected current variation is approximately 
+
+\begin{equation}
+\Delta I_{10^{\circ} \mathrm{C}} \approx 85 \mu \mathrm{~A},
+\end{equation}
+
+The corresponding effect on microphone headroom concerns a different limit from the AFE clipping point derived in the method: that of the microphone preamplifier itself. Using the Type~2671 preamplifier limit of 7~V peak below 20~kHz (4.95~Vrms) and the 50~mV/Pa sensitivity of the Type~4189 microphone, this yields about 99~Pa, or roughly 134~dB~SPL. This is above the acquisition chain's own full-scale limit of about 130~dB~SPL in the attenuator path (Table~\ref{tab:gain_ranging}), so the front end clips before the preamplifier reaches its 7~V peak, and the preamplifier headroom is not the binding constraint. Even if the current-limited headroom is assumed to scale with the bias current, the minimum measured current (a ratio of \(3.698/4.000 \approx 0.925\)) corresponds to only about \(-0.68~\mathrm{dB}\) of amplitude margin, and the realistic \(10~^\circ\mathrm{C}\) case to about \(-0.18~\mathrm{dB}\); the measured drift therefore has a negligible effect on the usable acoustic range.
+
+Finally, one IEPE channel supplied from 24~V draws about 96~mW at the nominal 4~mA, ranging from roughly 88.8~mW to 105.2~mW across the measured current limits, relevant to the power budget but slowly varying and not modulating the acoustic signal.
+
+\subsubsection{Battery-Current and Autonomy Results}
+
+The battery-current measurement was performed with the system operating from the 3S1P lithium-ion battery pack. The tested configuration included the wireless controller, audio-controller board, operational-amplifier supply, both microphone current-source channels, and a passive speaker connected to the system.
+
+During the measured operating interval, the battery voltage was approximately \(12.2~\mathrm{V}\). The measured current remained close to \(0.30~\mathrm{A}\), with short variations above and below this value. The multimeter statistics obtained during the recorded interval are summarized in Table~\ref{tab:battery_current_results}.
+
+\begin{table}[h]
+    \centering
+    \caption{Measured battery current during system operation.}
+    \label{tab:battery_current_results}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{|c|c|}
+        \hline
+        \textbf{Quantity} & \textbf{Measured value} \\
+        \hline
+        Minimum current & \(0.25849~\mathrm{A}\) \\
+        \hline
+        Maximum current & \(0.33365~\mathrm{A}\) \\
+        \hline
+        Mean current & \(0.29933~\mathrm{A}\) \\
+        \hline
+        Standard deviation & \(0.00983~\mathrm{A}\) \\
+        \hline
+        Peak-to-peak variation & \(0.07536~\mathrm{A}\) \\
+        \hline
+    \end{tabular}
+\end{table}
+
+Using the measured battery voltage during the test, the corresponding average battery-side power was approximately
+
+\begin{equation}
+    P_{\mathrm{bat,avg}}
+    \approx
+    (12.2~\mathrm{V})(0.29933~\mathrm{A})
+    \approx
+    3.65~\mathrm{W}.
+\end{equation}
+
+The maximum current observed during the same interval corresponds to an instantaneous battery-side power of approximately
+
+\begin{equation}
+    P_{\mathrm{bat,max}}
+    \approx
+    (12.2~\mathrm{V})(0.33365~\mathrm{A})
+    \approx
+    4.07~\mathrm{W}.
+\end{equation}
+
+An analytical autonomy estimate assumed a battery-side base consumption of about 4.81~W (the regulated-rail load power with assumed converter efficiencies of 90\% for the buck stages and 85\% for the isolated 24~V branch). With the 3.35~Ah pack, the nominal and usable stored energy (at an 80\% factor) are
+
+\begin{equation}
+E_{\mathrm{pack,nom}} = (11.1~\mathrm{V})(3.35~\mathrm{Ah}) \approx 37.2~\mathrm{Wh}, \qquad E_{\mathrm{usable}} \approx 29.8~\mathrm{Wh},
+\end{equation}
+
+giving an estimated base autonomy of
+\begin{equation}
+t_{\mathrm{base}} = \frac{29.8~\mathrm{Wh}}{4.81~\mathrm{W}} \approx 6.2~\mathrm{h}.
+\end{equation}
+
+The measured average power of 3.65~W is lower than this estimate by
+
+\begin{equation}
+\frac{4.81 - 3.65}{4.81}\times 100 \approx 24.1\%,
+\end{equation}
+
+indicating that the analytical calculation was conservative for the measured operating point. Using the measured average power as an ideal extrapolation,
+
+\begin{equation}
+t_{\mathrm{meas,ideal}} = \frac{29.8~\mathrm{Wh}}{3.65~\mathrm{W}} \approx 8.2~\mathrm{h},
+\end{equation}
+
+which should not be read as a validated autonomy result but only confirms consistency with the energy budget and that the six-hour target is plausible. The 3S choice also lowers the battery-side current for a given output power, since the 24~V conversion ratio is
+
+\begin{equation}
+M_{24,\mathrm{3S}} = \frac{24}{11.1} \approx 2.16 \qquad \text{versus} \qquad M_{24,\mathrm{2S}} = \frac{24}{7.4} \approx 3.24
+\end{equation}
+
+for a nominal 2S source, so the lower-voltage pack would require a higher input current and increase conduction losses in the cells, protection, connectors, and traces. Finally, a 3S2P pack with the same cells doubles the capacity to \(6.70~\mathrm{Ah}\) (about \(74.4~\mathrm{Wh}\) nominal and \(59.5~\mathrm{Wh}\) usable at the same 80\% factor) while keeping the voltage architecture unchanged. Applying the same energy-to-power relation used above gives
+
+\begin{equation}
+t_{\mathrm{3S2P,design}} = \frac{59.5~\mathrm{Wh}}{4.81~\mathrm{W}} \approx 12.4~\mathrm{h}, \qquad
+t_{\mathrm{3S2P,meas}} = \frac{59.5~\mathrm{Wh}}{3.65~\mathrm{W}} \approx 16.3~\mathrm{h}.
+\end{equation}
+
+These extrapolations are estimates, not validated results, but they show that adding capacity in parallel is compatible with the 3S architecture and raises autonomy without changing the regulated rails.
+
+The system was then operated from the 3S1P battery pack for six hours. During this period, the required voltage rails were unstable over the long term.
+
+%=================================================
+\section{Audio Acquisition System Selection}
+\label{sec:results_audio_selection}
+Based on the selection criteria in Section~\ref{sec:codec_selection} (SNR $\ge \SI{90}{\decibel}$, sample rate $\ge \SI{48}{\kilo\hertz}$, 24-bit resolution, and the availability of an evaluation board), an integrated codec was selected for the prototype. The discrete \acrshort{adc}/\acrshort{dac} approach was excluded because managing independent converter clocks introduces synchronization latency and increases the risk of clock-domain-crossing errors. Table~\ref{tab:platform_comparison} compares the candidate platforms, and Table~\ref{tab:wm8994_specs} summarizes the specifications of the chosen device. A complete comparison of all ICs is provided in Appendix~\ref{app:codec}.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm}}
+\hline
+\textbf{Feature}
+& \textbf{STM32H7 (Discovery / Nucleo)}
+& \textbf{Teensy 4.1 + Audio Shield}
+& \textbf{Raspberry Pi Zero 2 W}
+& \textbf{BeagleBone + Bela} \\
+\hline
+Processor Core
+& Cortex-M7 @ 480 MHz
+& Cortex-M7 @ 600 MHz
+& 4$\times$ Cortex-A53 @ 1 GHz
+& Cortex-A8 + PRUs \\
+OS / Runtime
+& Bare Metal / RTOS
+& Arduino (Bare Metal)
+& Linux
+& Linux (Xenomai) \\
+Audio Latency
+& $\sim$1 ms (deterministic)
+& $\leq$2 ms (block-based)
+& Variable ($\sim$5 ms)
+& $<$1 ms (PRU-based) \\
+Power Consumption
+& Low ($\sim$150--300 mW)
+& Low ($\sim$100--200 mW)
+& High ($\sim$1--2 W)
+& High ($\sim$2--3 W) \\
+Development Complexity
+& Medium
+& Low
+& Medium
+& High \\
+Synchronization Potential
+& Excellent (hardware timers)
+& Good
+& Poor (OS jitter)
+& Excellent \\
+Integrated Codec
+& WM8994 (Discovery)
+& SGTL5000 (shield)
+& None (requires HAT)
+& TLV320AIC3104 \\
+Overall Suitability
+& High (preferred)
+& Medium
+& Low
+& Medium \\
+\hline
+\end{tabular}
+\caption{Comparison of embedded audio platforms.}
+\label{tab:platform_comparison}
+\end{table}
+
+The WM8994 was chosen as the main audio acquisition component. The specifications here and in Table~\ref{tab:wm8994_specs} reflect manufacturer reference values: the WM8994 \acrshort{adc} dynamic range (\SI{95}{\decibel}) is lower than that of the discrete PCM1863 (\SI{110}{\decibel}) but higher than the SGTL5000 (\SI{85}{\decibel}) used in the Teensy 4.1 audio platform. This codec provides a practical compromise, offering sufficient fidelity for impulse-response characterization along with robust integration on the STM32H735G-DK board. The actual measured baseline SNR of the complete firmware loopback is reported in Section~\ref{sec:res_thd}.
+
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{3cm} p{4.5cm} p{5cm}}
+\hline
+\textbf{Category} & \textbf{Parameter} & \textbf{Specification} \\
+\hline
+\multirow{6}{*}{WM8994 (1/3)}
+& Type & Audio Codec \\
+& SNR (\acrshort{adc} / \acrshort{dac}) & 95 dB / 100 dB \\
+& I/O Channels & 2 input / 4 output \\
+& Sample Rates & 8--96 kHz \\
+& Resolution & 24-bit \\
+& Interface & I\textsuperscript{2}S + I\textsuperscript{2}C \\
+\hline
+\multirow{5}{*}{WM8994 (2/3)}
+& Mic Bias & Integrated \\
+& Gain Control & Digital volume control \\
+& Compatibility & STM32H735G-DK (evaluation board) \\
+& Audio Routing & Can mix or switch between multiple analog inputs \\
+& Recording Limitation & Only 2 digital channels recorded simultaneously \\
+\hline
+\multirow{4}{*}{WM8994 (3/3)}
+& Pros & Included on STM32 board; supports audio processing and software expansion from ST \\
+& Cons & WLCSP package (Type 72) may require external soldering service \\
+& Price (IC) & $\sim$100~kr \\
+& Manufacturer & Cirrus Logic \\
+\hline
+\end{tabular}
+\caption{WM8994 audio codec specifications (STM32H735G-DK evaluation board).}
+\label{tab:wm8994_specs}
+\end{table}
+
+
+\section{Audio Acquisition and Codec Characterization (Stage 1: Codec Baseline)}
+\label{sec:audio_results}
+
+This section presents the measured results of the audio acquisition system, beginning with validation of the full-duplex acquisition firmware, followed by characterization of the codec as described in Section~\ref{sec:codec_char_method}. All measurements were made using a direct codec loopback (Line-Out to Line-In, without the analog front end) in full-duplex mode. These results correspond to the codec-baseline row (S1) of the validation matrix in Table~\ref{tab:val_matrix}.
+
+\subsection{Acquisition Validation Summary}
+\label{sec:res_validation_summary}
+
+Testing the converter drivers showed that the DAC can play back at \SI{96}{\kHz} without problems, but the ADC does not work at that rate. This is a hardware limit of the WM8994: the DAC (AIF1 input) supports \SI{88.2}{\kHz} and \SI{96}{\kHz}, but the ADC (AIF1 output) only works at lower rates. Because of this, the system uses \SI{48}{\kHz} for both playback and recording.
+
+After fixing the SAI configuration (frame length, slot assignment, setup order, and PLL clock, as explained in Section~\ref{sec:driver_mods}), the full-duplex path correctly reproduced the test tone. This confirmed the acquisition path was working as intended. The next sections give the detailed measurements for this path.
+
+\subsection{Frequency Response}
+\label{sec:res_fr}
+
+Figure~\ref{fig:fr_fullduplex} shows the measured frequency response, calculated from the windowed impulse response in Equation~\eqref{eq:fr}. The response is flat across the audio band with a path gain of about \SI{5}{\decibel}. There is a low-frequency drop below about \SI{50}{\hertz}, reaching about \SI{3}{\decibel} at \SI{20}{\hertz}, due to the codec's built-in high-pass (DC-blocking) filter. The response stays flat up to the high-frequency cut-off near the \SI{24}{\kilo\hertz} Nyquist limit, which is set by the codec's anti-aliasing and reconstruction filters.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{figures/im_freq_resp_fullduplex.jpg}
+  \caption{Measured magnitude frequency response of the direct codec loopback (Line-Out to Line-In, no analog front end).}
+  \label{fig:fr_fullduplex}
+\end{figure}
+
+\subsection{Harmonic Distortion and Spectrum}
+\label{sec:res_thd}
+
+For the \SI{1}{\kilo\hertz} tone and an average of 14 samples, the measured total harmonic distortion was \SI{0.0070}{\percent} ($\SI{-83.10}{\decibel c}$), and the signal-to-noise ratio was \SI{81.1}{\decibel}, as calculated using Equations~\eqref{eq:thd} and~\eqref{eq:snr}.
+
+The harmonic structure is also visible in the sweep measurement. Figure~\ref{fig:spectro} compares the spectrogram of the generated reference sweep with that of the recording. The reference shows a single exponential trajectory, while the recording shows additional faint curved lines above the fundamental sweep, corresponding to harmonic distortion products from the codec's ADC/DAC chain, together with the broadband noise floor of the acquisition chain. As noted in Section~\ref{sec:char_ess}, these distortion products are mapped to distinct arrival times by the deconvolution and are therefore separated from the linear impulse.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/REC08_sweep_spectro.png}
+  \caption{Spectrogram comparison of the generated reference sweep (top) and the recorded loopback (bottom). }
+  \label{fig:spectro}
+\end{figure}
+
+\subsection{Impulse Response and Deconvolution}
+\label{sec:res_ir}
+
+By applying Equations~\eqref{eq:inverse_filter} and~\eqref{eq:deconv} to the recorded sweep obtained in (REC\_08), the impulse response of Figure~\ref{fig:ir_fr} is returned. The time-domain comparison of Figure~\ref{fig:sweep_time} shows the input to this process: the recorded sweep (bottom) reproduces the reference (top), with an amplitude build-up at low frequencies and a peak amplitude slightly below full scale.
+
+The recovered impulse response is a single localized peak with no significant secondary arrivals. The peak reaches a normalized amplitude of $-1.0$; the negative polarity corresponds to a net signal inversion through the codec path. The deconvolution diagnostics, computed using Equations~\eqref{eq:latency} and~\eqref{eq:inr}, are summarized in Table~\ref{tab:ir_metrics}.
+
+\begin{table}[h!]
+  \centering
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Metric} & \textbf{Value} \\
+    \midrule
+    Raw peak position      & 1904 samples ($\SI{39.667}{\ms}$) \\
+    Software pipeline      & 2048 samples \\
+    Hardware group delay   & 144 samples ($\approx\SI{3.0}{\ms}$) \\
+    IR peak amplitude      & $-1.0$ (inverted polarity) \\
+    INR (impulse-to-noise) & \SI{125.93}{\decibel} \\
+    \bottomrule
+  \end{tabular}
+  \caption{Deconvolution diagnostics for the REC\_08 sweep (channel 1), direct electrical loopback.}
+  \label{tab:ir_metrics}
+\end{table}
+
+The impulse-to-noise ratio (INR) of the loopback was \SI{125.93}{\decibel}, confirming a high-dynamic-range, low-noise recovered impulse and validating the deconvolution pipeline on a known electrical path. This INR is a measurement-quality diagnostic for the codec baseline.
+
+This \SI{125.93}{\decibel} figure does not represent the raw hardware signal-to-noise ratio (SNR). For this system, which utilizes a 16-bit audio format, the theoretical maximum SNR is bounded near \SI{98}{\decibel}, and the measured SNR in the codec loopback is approximately \SI{81}{\decibel} (see Section~\ref{sec:res_thd}). Instead, the elevated INR reflects the significant processing gain of the exponential-sine-sweep (ESS) deconvolution. This mathematical process compresses the coherent energy of the multi-second sweep into a single, localized impulse, returning a theoretical gain proportional to $10\log_{10}(T\Delta f)$, while the incoherent thermal and quantization noise remains distributed across the entire time record. Consequently, the recovered impulse emerges from the noise floor with a dynamic range far exceeding the per-sample resolution of the 16-bit converter. In summary, the reported INR characterizes the effective dynamic range of the measurement methodology itself, rather than the intrinsic SNR of the codec hardware.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/REC08_sweep_irfr.png}
+  \caption{Impulse response (top) and derived frequency response (bottom) of the direct codec loopback, recovered by deconvolution of the REC\_08 sweep.}
+  \label{fig:ir_fr}
+\end{figure}
+
+% The IR is a single peak and the magnitude response is flat up to the Nyquist roll-off.
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/REC08_sweep_time.png}
+  \caption{Time-domain comparison of the generated reference sweep (top) and the recorded loopback (bottom).}
+  \label{fig:sweep_time}
+\end{figure}
+
+% The recording tracks the reference, with a low-frequency amplitude build-up and a peak amplitude just below full scale.
+
+\subsection{End-to-End Latency}
+\label{sec:res_latency}
+
+The end-to-end latency was evaluated using both impulse-response deconvolution and a pulse-train stimulus. Operating with a full DMA buffer of 2048 stereo samples at \SI{48}{\kHz} (one buffer period $\approx \SI{42.67}{\ms}$), the raw latency peak was extracted at 1904 samples ($\approx\SI{39.667}{\ms}$) via Equation~\eqref{eq:latency}. Evaluating the circular wrap around the block boundary ($2048 - 1904$) returns an underlying hardware group delay of 144 samples ($\approx\SI{3.0}{\ms}$).
+
+Figure~\ref{fig:frame_latency} shows the round-trip latency measured for DMA frame sizes from 256 to 4096 samples. A straight-line fit to these results (Equation~\eqref{eq:frame_model}) gives a slope of $a \approx 0.48$ buffers and an intercept of $b \approx \SI{-1.8}{\ms}$. During all tests, the pulse-train method did not detect any dropped frames, and the latency results from both methods were closely matched.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{figures/frame_frame_sweep.png}
+  \caption{Round-trip latency versus DMA frame size, measured with a pulse-train stimulus.}
+  \label{fig:frame_latency}
+\end{figure}
+
+\subsection{Determinism and Repeatability}
+\label{sec:res_determinism}
+% Added from the REC02 campaign (10+ repeats per stimulus). Repeatability
+% evidence for the codec baseline; complements the single-shot metrics above.
+
+To test repeatability, each stimulus was run ten times, and the campaign was checked for data dropouts. In the ten exponential-sine-sweep recordings (REC\_11--REC\_20), the round-trip latency was the same every time ($\SI{39.646}{\ms}$). The impulse-to-noise ratio was \SI{125.0}{\decibel} for nine recordings, with a single degraded case (REC\_17, \SI{76.1}{\decibel}). For the ten pulse-train recordings (REC\_21--REC\_30), the latency was again consistent ($\SI{39.625}{\ms}$) and there was no inter-burst jitter in nine out of ten cases. The one exception (REC\_27) had a single late burst (\SI{7.6}{\ms} jitter in one out of thirty bursts), likely caused by a dropped or delayed DMA buffer rather than an ongoing timing issue. The latencies measured by both sweep and pulse methods matched to within $\approx\SI{0.021}{\ms}$ (the length of a single audio sample). The same round-trip latency was observed with shorter sweeps (\SI{5}{\second} and \SI{3}{\second}), indicating that latency depends on the buffering pipeline rather than on the stimulus.
+
+A glitch scan of all fifty recordings of the campaign, detecting both held-sample runs (buffer under-run fills) and isolated waveform discontinuities (dropped-buffer splices), flagged only the two events above (REC\_17 and REC\_27) and found no held-sample runs or zero-fills anywhere in the set. The two events are therefore isolated buffer glitches, not systematic dropouts, and the acquisition path is deterministic to the sample across repeated measurements.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/ESSF_det_determinism.png}
+  \caption{Repeatability of the codec-baseline acquisition across ten sweep recordings: per-recording round-trip latency (top) and impulse-to-noise ratio (bottom). }
+  \label{fig:res_determinism}
+\end{figure}
+%The latency is identical to the sample; a single recording (REC\_17) shows a degraded INR, and one pulse-train recording (REC\_27, not shown) exhibited a single late burst.
+\subsection{Inter-Channel Crosstalk}
+\label{sec:res_crosstalk}
+
+A \SI{1}{\kilo\hertz} tone was driven into one channel while the other was held silent, in both channel orientations, and evaluated with Equation~\eqref{eq:crosstalk}. The results are listed in Table~\ref{tab:crosstalk}, reporting both the leakage measured at the tone frequency and the broadband (RMS) leakage. Figure~\ref{fig:crosstalk_term} shows the corresponding recordings for a swept stimulus and for the \SI{1}{\kilo\hertz} tone, with both channels terminated.
+
+\begin{table}[h!]
+  \centering
+  \begin{tabular}{lllll}
+    \toprule
+    \textbf{Recording} & \textbf{Active} & \textbf{Idle} & \textbf{Leakage @ \SI{1}{\kHz}} & \textbf{Idle Channel RMS} \\
+    \midrule
+    REC\_03 & R & L & \SI{-100.10}{\decibel} & \SI{-83.74}{\decibel} \\
+    REC\_05 & L & R & \SI{-100.07}{\decibel} & \SI{-83.78}{\decibel} \\
+    \bottomrule
+  \end{tabular}
+  \caption{Inter-channel isolation for a \SI{1}{\kilo\hertz} tone with both channels terminated. }
+  \label{tab:crosstalk}
+\end{table}
+% The specific \SI{1}{\kHz} leakage is highly suppressed, meaning the broadband RMS measurement of the idle channel is dominated by the baseline system noise floor (\textasciitilde\SI{-83.7}{\decibel}) rather than actual crosstalk.
+
+A measurable leakage was observed only when one input was left open, neither connected to a source nor grounded. In this configuration the \SI{1}{\kilo\hertz} tone appeared in the floating channel, and terminating the input removed it. This case is consistent with a floating high-impedance input rather than coupling within the terminated signal path, and is reported separately from the values in Table~\ref{tab:crosstalk}.
+
+\begin{figure}[!h]
+  \centering
+  \begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/im_crosstalk_channels_fullduplex_recs.png}
+    \caption{Swept stimulus on one channel; the other remains silent.}
+    \label{fig:crosstalk_sweep}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/im_crosstalk_channels_fullduplex_sin1k.png}
+    \caption{\SI{1}{\kilo\hertz} tone driven separately on L and R.}
+    \label{fig:crosstalk_1k}
+  \end{subfigure}
+  \caption{Inter-channel crosstalk recordings with both channels terminated, for a swept stimulus (left) and a \SI{1}{\kilo\hertz} tone (right).}
+  \label{fig:crosstalk_term}
+\end{figure}
+
+\subsection{Speaker Amplifier Class Validation}
+\label{sec:res_speaker_class}
+% Maps to the method validation in Section~\ref{sec:speaker_class_validation}.
+% Codec/driver-level result (speaker output path), so it sits in Stage 1.
+
+This result corresponds to the comparative speaker-output measurement defined in Section~\ref{sec:speaker_class_validation}, performed with a \SI{1}{\kilo\hertz} reference tone on the RTB2004 oscilloscope.
+
+In Class~D operation, the output waveform showed the expected pulse-width-modulated switching pattern at the speaker terminals. The sinusoidal envelope was visible but overlaid with a high-frequency switching carrier, producing a staircase-like appearance at the audio-frequency scale. The FFT spectrum confirmed an elevated noise floor and significant harmonic content above the fundamental.
+
+\begin{figure}[!h]
+  \centering
+  \begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/class_d_1k.PNG}
+    \caption{FFT analysis of class D amplifier.}
+    \label{fig:classd_fft}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/class_d_codec.PNG}
+    \caption{Class D resulting waveform.}
+    \label{fig:classd_wave}
+  \end{subfigure}
+  \caption{Class D results.}
+  \label{fig:classd}
+\end{figure}
+
+
+In Class~AB operation, the output waveform was a continuous sinusoid without visible switching artifacts. The FFT spectrum showed a much lower noise floor and reduced harmonic distortion compared to Class~D.
+
+\begin{figure}[!h]
+  \centering
+  \begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/class_ab_1k.PNG}
+    \caption{FFT analysis of class AB amplifier.}
+    \label{fig:classab_fft}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/class_ab_codec.PNG}
+    \caption{Class AB resulting waveform.}
+    \label{fig:classab_wave}
+  \end{subfigure}
+  \caption{Class AB results.}
+  \label{fig:classab}
+\end{figure}
+
+These results indicate that Class~AB operation is preferable when the speaker output serves as a near-field acoustic source for measurements that require a low noise floor, such as calibration tones or verification sweeps. Class~D remains suitable for general playback, where switching efficiency is more important than spectral purity.
+
+
+\section{Analog Front End (AFE) for IEPE Sensors}
+
+
+\subsection{Current Source Simulation}
+\label{sec:res_afe_current}
+A transient simulation of the IEPE current source (Section~\ref{sec:afe_current_source}) was run over \SI{100}{\milli\second}. The results are presented in Table~\ref{tab:current_source_results} and Figure~\ref{fig:iepe_simulation}.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{Parameter} & \textbf{Target} & \textbf{Simulated} \\
+\hline
+DC Excitation Current & 4.00 mA & 4.058 mA \\
+Current Ripple (peak-to-peak) & Minimal & $0.2~\mu$A ($\pm 0.1~\mu$A, $\sim$0.005\%) \\
+Output Voltage ($V_{\text{OUT}}$) & $\pm 50$ mV peak & $\pm 50$ mV peak \\
+DC Offset at Output & 0 V & $\sim$0 V \\
+Waveform Distortion & None & None observed \\
+\hline
+\end{tabular}
+\caption{Current source simulation results.}
+\label{tab:current_source_results}
+\end{table}
+
+The simulation gave a DC output current of \SI{4.058}{\milli\ampere}, which is $1.45\%$ above the target value of \SI{4}{\milli\ampere}. The current changed only a little ($0.2~\mu$A peak-to-peak, or $\sim 0.005\%$) when the simulated microphone signal was applied, as expected for a constant current source with high output impedance. The AC-coupled output voltage matched the \SI{440}{\hertz} sine wave at $\pm 50$~mV peak and had no DC offset.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/current_iepe.png}
+        \caption{Current source output showing the \SI{12}{\volt} DC-biased excitation current with minimal AC ripple.}
+        \label{fig:iepe_current}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/vout.png}
+        \caption{AC-coupled output voltage showing a clean \SI{440}{\hertz} sinusoidal waveform with $\pm$50~mV peak amplitude and zero DC offset.}
+        \label{fig:iepe_vout}
+    \end{subfigure}
+    \caption{LTspice transient simulation results for the IEPE current source circuit with the Type 2671 microphone model. (a) Supply current through R5, (b) output voltage after AC coupling.}
+    \label{fig:iepe_simulation}
+\end{figure}
+
+
+
+\subsection{Noise Simulation}
+\label{sec:res_afe_noise}
+
+Noise in the gain network was evaluated using LTSpice to help select the op-amp and set the resistor values, as discussed in Section~\ref{sec:afe_noise}. Figure~\ref{fig:noise_opamp} shows the noise at the output of the gain stage across the audio band.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/noise_opamp_sim.png}
+  \caption{Simulated output-referred noise spectral density of the gain stage across the audio band.}
+  \label{fig:noise_opamp}
+\end{figure}
+
+Figure~\ref{fig:noise_resistor} shows how much noise comes from the resistors. It compares the selected small-value resistors to larger ones. The \SI{100}{\ohm} gain resistor adds about \SI{1.28}{\nano\volt\per\sqrt\hertz}, and the \SI{1}{\kilo\ohm} feedback resistor adds about \SI{4.07}{\nano\volt\per\sqrt\hertz}. These values mean that resistor noise is similar to, but does not overwhelm, the noise from the amplifier itself.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/noise_resistor_comparison.png}
+  \caption{Contribution of resistor thermal noise to the total input-referred noise, comparing the selected small-valued resistors against larger alternatives.}
+  \label{fig:noise_resistor}
+\end{figure}
+
+
+% -----------------------------------------------------
+\subsection{Measurement Setup}
+\label{sec:res_afe_bench_setup}
+
+
+All standalone AFE measurements in this section were acquired on the assembled two-channel AFE PCB using a fixed bench configuration: an R\&S~HMF2525 arbitrary function generator supplied the \SI{1}{\kilo\hertz} stimulus, an R\&S~HMC8042 DC power supply provided the board rails, and an R\&S~RTB2004 digital oscilloscope captured the input on channel~CH1 and the conditioned output on channel~CH2. Unless stated otherwise, the peak-to-peak input voltage $V_{\text{pp,in}}$ quoted in the text and tables is the function-generator setting read on CH1, and all FFT spectra use the common configuration of a \SI{0}{\hertz}--\SI{20}{\kilo\hertz} span, \SI{2.32}{\hertz} resolution bandwidth, and a Hanning window, matching the settings established in the codec-baseline measurements. The board was exercised through each of the four signal-conditioning paths (follower, \SI{20}{\decibel}, \SI{40}{\decibel}, and attenuator) defined in Table~\ref{tab:afe_paths} by setting the corresponding input and output jumpers. The bench arrangement is shown in Figure~\ref{fig:afe_bench_photo}.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.72\textwidth]{figures/afe_pcb_in_signal_gen_lab_test.jpeg}
+  \caption{Bench setup for the standalone AFE measurements: the assembled two-channel AFE PCB driven by the function generator and captured on the R\&S~RTB2004 oscilloscope.}
+  \label{fig:afe_bench_photo}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\subsection{Measured Gain Verification}
+\label{sec:res_afe_gain}
+% ---------------------------------------------------------------------
+
+Each signal-conditioning path was driven with a \SI{1}{\kilo\hertz} tone at a mid-range input level, and the input and output peak-to-peak voltages were measured simultaneously on CH1 and CH2. The voltage gain was computed with Equation~\eqref{eq:afe_gain_meas} and compared against the nominal design value from Table~\ref{tab:afe_paths}. The results are summarized in Table~\ref{tab:res_afe_gain} and agree with the nominal gains to within the tolerance of the resistor network across all four paths, confirming that the board was assembled correctly and that the virtual-ground reference remained stable under load.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\hline
+\textbf{Path} & \textbf{$V_{\text{pp,in}}$} & \textbf{$V_{\text{pp,out}}$} & \textbf{$A_{v,\text{meas}}$} & \textbf{$A_{v,\text{nom}}$} \\
+\hline
+Follower (raw)          & \SI{2.548}{\volt}  & \SI{2.558}{\volt}  & $\approx 1.00$  & $1$      \\
+\SI{20}{\decibel} stage & \SI{208.7}{\milli\volt} & \SI{2.279}{\volt}  & $10.9$          & $11$     \\
+\SI{40}{\decibel} stage & \SI{20.55}{\milli\volt} & \SI{2.065}{\volt}  & $100.5$         & $101$    \\
+Attenuator              & \SI{7.10}{\volt}   & \SI{2.274}{\volt}  & $0.320$         & $0.3125$ \\
+\hline
+\end{tabular}
+\caption{Measured voltage gain of each signal-conditioning path at \SI{1}{\kilo\hertz}, compared with the nominal design value (Table~\ref{tab:afe_paths}).}
+\label{tab:res_afe_gain}
+\end{table}
+
+For the \SI{20}{\decibel} path, the input and output waveforms are shown in the time domain in Figure~\ref{fig:afe_20db_time}, giving $A_{v,\text{meas}} \approx 10.9$ against the nominal value of $11$. The corresponding FFT in Figure~\ref{fig:afe_20db_fft} shows a single dominant fundamental at \SI{1}{\kilo\hertz} well above the noise floor, with a fundamental-to-second-harmonic separation $\Delta L$ of roughly \SI{47}{\decibel}.  The \SI{40}{\decibel} path reproduces the small input at $A_{v,\text{meas}} \approx 100.5$ against the nominal $101$.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_20db_time.png}
+        \caption{Time domain: $V_{\text{pp,in}}=\SI{208.7}{\milli\volt}$ (C1), $V_{\text{pp,out}}=\SI{2.279}{\volt}$ (C2).}
+        \label{fig:afe_20db_time}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_20db_fft.png}
+        \caption{FFT: single fundamental at \SI{1}{\kilo\hertz}, $\Delta L\approx\SI{47}{\decibel}$ to the second harmonic.}
+        \label{fig:afe_20db_fft}
+    \end{subfigure}
+    \caption{Measured \SI{20}{\decibel} gain path at \SI{1}{\kilo\hertz} (bench supply). C1 is the function-generator input, C2 the AFE output.}
+    \label{fig:afe_20db}
+\end{figure}
+
+
+% ---------------------------------------------------------------------
+\subsection{Passband Flatness of the Gain Path}
+\label{sec:res_afe_fr_bench}
+% ---------------------------------------------------------------------
+
+The flatness of the \SI{20}{\decibel} path was checked at three frequencies spanning the low- and mid-audio bands. At \SI{440}{\hertz}, \SI{1}{\kilo\hertz}, and \SI{5}{\kilo\hertz} the output peak-to-peak voltage held at approximately \SI{2.29}{\volt}, \SI{2.28}{\volt}, and \SI{2.23}{\volt} respectively, confirming a flat response across the tested range with no peaking or roll-off, consistent with the \SI{106}{\kilo\hertz} bandwidth corner set by the feedback capacitors (Equation~\eqref{eq:afe_gain_bw}). Representative spectra at \SI{440}{\hertz} and \SI{5}{\kilo\hertz} are shown in Figure~\ref{fig:afe_fr_points}; in each case the fundamental tracks the input frequency and stands well clear of the noise floor.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_20db_fr_440.png}
+        \caption{\SI{440}{\hertz}: $V_{\text{pp,out}}\approx\SI{2.29}{\volt}$.}
+        \label{fig:afe_fr_440}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_20db_fr_5k.png}
+        \caption{\SI{5}{\kilo\hertz}: $V_{\text{pp,out}}\approx\SI{2.23}{\volt}$.}
+        \label{fig:afe_fr_5k}
+    \end{subfigure}
+    \caption{Passband spot-checks of the \SI{20}{\decibel} path at \SI{440}{\hertz} and \SI{5}{\kilo\hertz}, showing a flat gain across the tested audio band.}
+    \label{fig:afe_fr_points}
+\end{figure}
+
+
+% ---------------------------------------------------------------------
+\subsection{Full-Scale Input and Clipping Point}
+\label{sec:res_afe_clipping}
+% ---------------------------------------------------------------------
+
+For each path, the input amplitude was increased until the output waveform first exhibited visible clipping, thereby establishing the measured full-scale input for that path. The results are collected in Table~\ref{tab:res_afe_clipping}. The measured clipping inputs follow the expected gain-ranging ladder: the high-gain \SI{40}{\decibel} path saturates at the smallest input, the follower accepts a large signal before clipping, and the attenuator accepts the largest input of all. This confirms that the clipping ceiling is set by the codec/output full-scale constraint scaled by each path's gain, as intended by the design of Table~\ref{tab:gain_ranging}, rather than by op-amp rail saturation at a single fixed input.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Path} & \textbf{Clean up to $V_{\text{pp,in}}$} & \textbf{Clips at $V_{\text{pp,in}}$} & \textbf{Figure} \\
+\hline
+\SI{40}{\decibel} stage & $\approx\SI{20}{\milli\volt}$ & $\approx\SI{50}{\milli\volt}$ & \ref{fig:afe_40db_clip} \\
+Follower (raw)          & $\approx\SI{3.2}{\volt}$      & $\approx\SI{4.0}{\volt}$      & \ref{fig:afe_follower_clip} \\
+Attenuator              & $\approx\SI{7.1}{\volt}$      & $\approx\SI{12.5}{\volt}$     & \ref{fig:afe_atten_clip} \\
+\hline
+\end{tabular}
+\caption{Measured full-scale input for each gain path, defined as the input peak-to-peak voltage at which the output first shows visible clipping. The \SI{20}{\decibel} path was operated below clipping for the gain and passband measurements and is bounded between the \SI{40}{\decibel} and follower paths.}
+\label{tab:res_afe_clipping}
+\end{table}
+
+In the \SI{40}{\decibel} path, the output flat-tops as soon as the input exceeds a few tens of millivolts (Figure~\ref{fig:afe_40db_clip}), consistent with its high gain. In the follower path, the output tracks the input cleanly up to about \SI{3.2}{\volt} peak-to-peak and begins to flatten near \SI{4.0}{\volt}, at which point harmonic products appear in the FFT (Figure~\ref{fig:afe_follower_clip}). In the attenuator path, the output remains a clean sinusoid up to a large input and saturates only near \SI{12.5}{\volt} peak-to-peak input (Figure~\ref{fig:afe_atten_clip}), the highest-level path as expected from its sub-unity gain.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_40db_time_sat.png}
+        \caption{\SI{40}{\decibel} path clipping (output flat-topped).}
+        \label{fig:afe_40db_clip}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_follower_time_clip.png}
+        \caption{Follower path clipping near $V_{\text{pp,in}}\approx\SI{4.0}{\volt}$.}
+        \label{fig:afe_follower_clip}
+    \end{subfigure}
+
+    \vspace{0.6em}
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_atten_time_sat.png}
+        \caption{Attenuator path saturating near $V_{\text{pp,in}}\approx\SI{12.5}{\volt}$.}
+        \label{fig:afe_atten_clip}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_follower_fft_clip.png}
+        \caption{Follower FFT at clipping: harmonic products appear above the fundamental.}
+        \label{fig:afe_follower_fft_clip}
+    \end{subfigure}
+    \caption{Full-scale and clipping behavior of the gain-ranging paths.}
+    \label{fig:afe_clipping}
+\end{figure}
+% Each path clips at the input level predicted by its gain, confirming the gain-ranging ladder of Table~\ref{tab:gain_ranging}.
+
+% ---------------------------------------------------------------------
+\subsection{Output Noise Floor}
+\label{sec:res_afe_noise_floor}
+% ---------------------------------------------------------------------
+
+The output noise floor of the AFE was characterized from the oscilloscope FFT (in \si{\deci\bel V}) with no stimulus applied, following the terminated-input procedure of the method. Figure~\ref{fig:afe_20db_noise} shows the output spectrum of the \SI{20}{\decibel} path: away from the discrete lines the broadband floor sits near \SI{-90}{\decibel V}, and the spectrum is dominated by a set of discrete tones at approximately \SI{1.5}{\kilo\hertz}, \SI{3.7}{\kilo\hertz}, \SI{7}{\kilo\hertz}, and \SI{9.5}{\kilo\hertz} rather than by broadband circuit noise. In the \SI{20}{\decibel} path these tones sit at roughly \SI{-55}{\decibel V}, and in the \SI{40}{\decibel} path the same tones rise to roughly \SI{-45}{\decibel V}.
+
+The \SI{10}{\decibel} increase of these tones between the two paths is smaller than the \SI{20}{\decibel} electrical gain step between the \SI{20}{\decibel} and \SI{40}{\decibel} configurations. This non-proportional scaling shows that the interference is not purely input-referred. Instead, it indicates that supply-conducted noise couples into the signal path at an intermediate stage, or that the amplifier’s power supply rejection ratio (PSRR) limits suppression differently at higher closed-loop gains. Comparing these discrete lines to the bench-supply noise baseline (Figures~\ref{fig:afe_supply_noise_fft} and~\ref{fig:afe_supply_noise_fft2}) confirms they originate from the external power supply, not from intrinsic thermal noise in the conditioning electronics.
+
+The buffered \SI{1.65}{\volt} virtual-ground reference was measured separately (Figure~\ref{fig:afe_vground_noise}) and shows a low-amplitude, spectrally clean reference with only small discrete lines, confirming that the reference buffer does not inject significant noise into the signal paths.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_20db_noise.png}
+        \caption{\SI{20}{\decibel} path output noise spectrum (dBV FFT).}
+        \label{fig:afe_20db_noise}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_vground_noise.png}
+        \caption{Buffered \SI{1.65}{\volt} virtual-ground reference noise.}
+        \label{fig:afe_vground_noise}
+    \end{subfigure}
+    \caption{Measured output noise floor of the AFE and of the virtual-ground reference, from the oscilloscope FFT with no stimulus applied.}
+    \label{fig:afe_noise}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_supply_noise_fft.png}
+        \caption{Bench-supply noise baseline.}
+        \label{fig:afe_supply_noise_fft}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_supply_noise_fft2.png}
+        \caption{Bench-supply noise baseline (alternate capture).}
+        \label{fig:afe_supply_noise_fft2}
+    \end{subfigure}
+    \caption{Supply-noise baseline used to attribute the discrete spectral lines observed in the AFE output spectra to the supply rather than to the conditioning electronics.}
+    \label{fig:afe_supply_noise}
+\end{figure}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{Peak frequency} & \textbf{\SI{20}{\decibel} path} & \textbf{\SI{40}{\decibel} path} \\
+\hline
+$\approx\SI{1.5}{\kilo\hertz}$ & $\approx\SI{-55}{\decibel V}$ & $\approx\SI{-45}{\decibel V}$ \\
+$\approx\SI{3.7}{\kilo\hertz}$ & $\approx\SI{-55}{\decibel V}$ & $\approx\SI{-45}{\decibel V}$ \\
+$\approx\SI{7}{\kilo\hertz}$   & $\approx\SI{-55}{\decibel V}$ & $\approx\SI{-45}{\decibel V}$ \\
+$\approx\SI{9.5}{\kilo\hertz}$ & $\approx\SI{-55}{\decibel V}$ & $\approx\SI{-45}{\decibel V}$ \\
+\hline
+\end{tabular}
+\caption{Discrete supply-conducted tones observed in the AFE output noise spectrum. The $\approx\SI{10}{\decibel}$ rise from the \SI{20}{\decibel} to the \SI{40}{\decibel} path matches the gain step, confirming the tones are input-referred supply interference rather than AFE-generated noise.}
+\label{tab:res_afe_supply_peaks}
+\end{table}
+
+% TODO (quantitative noise): if you want to close the input-referred noise
+% argument numerically (against the ~1.27 uV budget of Eq.~\eqref{eq:afe_noise_budget}),
+% read the BROADBAND floor level in dBV from afe_20db_noise.png (between the
+% discrete supply tones, ~-90 dBV), convert to Vrms, and refer it to the input
+% by dividing by the path gain (11 for the 20 dB path). Report that value for
+% the broadband floor separately from the discrete supply tones tabulated in
+% Table~\ref{tab:res_afe_supply_peaks}, since only the broadband part reflects
+% the AFE's own noise. Then compare with the 16-bit LSB (~50 uV) to confirm the
+% chain is not converter-limited at 24-bit. This is the empirical counterpart to
+% Section~\ref{sec:res_afe_noise}.
+
+
+% ---------------------------------------------------------------------
+\subsection{Operation from the Integrated Power Supply and Battery}
+\label{sec:res_afe_pcb_power}
+% ---------------------------------------------------------------------
+
+Beyond the bench supply, the AFE was also exercised from the node's own regulated power PCB and, finally, from the battery pack, to confirm that the conditioning path behaves identically when supplied by the integrated node rather than by laboratory equipment. Figure~\ref{fig:afe_pcb_power} shows the follower path driven at \SI{1}{\kilo\hertz} while powered from the on-board supply, and Figure~\ref{fig:afe_pcb_power_batt} shows the same measurement running from the battery. In both cases, the output reproduces the input at the expected level with a comparable noise floor, confirming that neither source degrades the AFE output relative to the bench measurements. This is the first point in the validation at which the analog front end runs entirely on the node's own power chain. It should be noted that this concerns only the AFE's own low-current supply rail; the separate \SI{7}{\volt} rail that powers the STM32 at its much higher current draw was not load-tested at this point, and, as shown in the integrated acoustic stage (Section~\ref{sec:res_acoustic_noise}), that rail dominates the noise floor of the assembled system.
+
+\begin{figure}[h!]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_pcb_power.png}
+        \caption{Powered from the integrated power PCB.}
+        \label{fig:afe_pcb_power}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/afe_pcb_power_batt.png}
+        \caption{Powered from the battery pack.}
+        \label{fig:afe_pcb_power_batt}
+    \end{subfigure}
+    \caption{Follower path at \SI{1}{\kilo\hertz} operating from the integrated power supply and from the battery, confirming equivalent behavior to the bench-supplied measurements.}
+    \label{fig:afe_pcb_power_both}
+\end{figure}
+
+
+%==========================================
+\section{Integrated System Results: Electrical Integration (Stage 3)}
+\label{sec:res_integrated_electrical}
+In this stage, the analog front end and the codec were connected together and driven from the signal generator, with the STM32 acquiring through the WM8994; the bench arrangement is shown in Figure~\ref{fig:stage3_setup}.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.72\textwidth]{figures/afe_pcb_stm32_in_signal_gen_lab_test.jpeg}
+  \caption{Stage 3 electrical-integration bench: the AFE PCB connected to the STM32H735G-DK, driven by the function generator and monitored on the oscilloscope, with the STM32 powered from the host USB port.}
+  \label{fig:stage3_setup}
+\end{figure}
+
+\subsection{Frequency Response of the AFE + Codec Chain}
+\label{sec:res_int_fr}
+
+The frequency response of the integrated AFE and codec was measured by sending a constant-amplitude logarithmic sweep (\SIrange{5}{20000}{\hertz}, \SI{10}{\second}) from the function generator into the analog front end and recording through the WM8994 codec in full-duplex mode. Because the sweep maintains the same amplitude at all frequencies, the envelope of the recorded signal directly shows the gain at each frequency. By tracking this envelope against the changing frequency, the magnitude response was measured without the level bias that would occur with a simple spectrum of a logarithmic sweep. Measurements were taken at both \SI{0}{\decibel} gain (\SI{1}{\volt} peak-to-peak input) and \SI{20}{\decibel} gain (\SI{50}{\milli\volt} peak-to-peak input), as shown in Figure~\ref{fig:res_int_fr}.
+
+The response is flat within $\pm\SI{0.1}{\decibel}$ across the audio band, from $\SI{50}{\hertz}$ to $\SI{19}{\kilo\hertz}$.
+
+At low frequencies, the response rolls off gently, staying within $\SI{-0.6}{\decibel}$ at \SI{20}{\hertz} and reaching $\SI{-3}{\decibel}$ near \SI{8}{\hertz}, identically for both gain settings; this corner comes from the codec's DC-blocking filter, it is also present in the codec-only baseline of Section~\ref{sec:res_fr}, and not from the AFE, whose own coupling corners lie well below the audio band.
+
+At high frequencies, the response remains flat up to $\SI{19}{\kilo\hertz}$ and drops only $\SI{-0.6}{\decibel}$ at $\SI{20}{\kilo\hertz}$. The upper \SI{-3}{\decibel} point is beyond the audio band, set by the codec's decimation filter near the \SI{24}{\kilo\hertz} Nyquist frequency. The curves for \SI{0}{\decibel} and \SI{20}{\decibel} gain are essentially identical, indicating that the analog front end is frequency-flat and that its gain changes only the level, not the shape, of the response.
+
+Overall, the integrated result matches the flat codec baseline from Section~\ref{sec:res_fr}, with the only band-edge features being the sub-\SI{10}{\hertz} DC-blocking corner (already present in the codec) and the codec's anti-alias roll-off above \SI{20}{\kilo\hertz}.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/stage3_fr.png}
+  \caption{Frequency response of the integrated AFE + codec chain from a signal-generator swept sine, at the \SI{0}{\decibel} and \SI{20}{\decibel} gain settings.}
+  \label{fig:res_int_fr}
+\end{figure}
+
+\subsection{Total Harmonic Distortion of the Integrated Chain}
+\label{sec:res_int_thd}
+
+Total harmonic distortion (THD) for the AFE plus codec chain was measured using a \SI{1}{\kilo\hertz} tone from the function generator, at different input levels and gain settings, following Equation~\eqref{eq:thd}. The results are shown in Table~\ref{tab:res_int_thd}.
+
+When the input stayed within the linear range for each gain, distortion was low and nearly identical to the codec baseline of \SI{0.0070}{\percent} (see Section~\ref{sec:res_thd}). At unity gain, THD was \SI{0.0069}{\percent}, which matches the codec-only result. For \SI{20}{\decibel} gain and input levels between \SI{50}{\milli\volt} and \SI{200}{\milli\volt}, THD ranged from \SI{0.011}{\percent} to \SI{0.014}{\percent}. This means the analog front end does not introduce significant harmonic distortion when used within its operating range.
+
+At these low distortion levels (around \SI{-80}{\decibel c}), only the second and third harmonics are clearly above the converter noise floor. Small differences between codec-only and integrated measurements, just a few thousandths of a percent, fall within normal measurement uncertainty and do not indicate a real effect. The linear gain stage cannot improve the converter’s own distortion; it can only leave it unchanged.
+
+When the input exceeds the full-scale range, distortion rises sharply. For example, at \SI{20}{\decibel} gain with a \SI{500}{\milli\volt} input, THD jumps to \SI{22}{\percent}. At \SI{40}{\decibel} gain, THD ranges from \SI{32}{\percent} to \SI{36}{\percent} as the front end and converter begin to clip. These overload points match the standalone clipping limits in Table~\ref{tab:res_afe_clipping}.
+
+Overall, the distortion of the integrated chain is limited by the available gain headroom (see Table~\ref{tab:gain_ranging}), not by the linearity of the electronics. To keep distortion low, each configuration must be operated below its full-scale input.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{llccl}
+\hline
+\textbf{Recording} & \textbf{Gain} & \textbf{Input ($V_{\text{pp}}$)} & \textbf{THD [\%]} & \textbf{Note} \\
+\hline
+REC\_29 & \SI{0}{\decibel}  & \SI{1}{\volt}      & 0.0069 & in range \\
+REC\_51 & \SI{20}{\decibel} & \SI{50}{\milli\volt}  & 0.0115 & in range \\
+REC\_52 & \SI{20}{\decibel} & \SI{100}{\milli\volt} & 0.0111 & in range \\
+REC\_55 & \SI{20}{\decibel} & \SI{200}{\milli\volt} & 0.0139 & in range \\
+REC\_56 & \SI{20}{\decibel} & \SI{500}{\milli\volt} & 22.3   & clipping \\
+REC\_47 & \SI{40}{\decibel} & \SI{50}{\milli\volt}  & 32.0   & clipping \\
+REC\_48 & \SI{40}{\decibel} & \SI{100}{\milli\volt} & 36.2   & clipping \\
+\hline
+\end{tabular}
+\caption{Total harmonic distortion of the integrated AFE + codec chain at \SI{1}{\kilo\hertz}.}
+\label{tab:res_int_thd}
+\end{table}
+
+\subsection{Inter-Channel Crosstalk Through the AFE PCB}
+\label{sec:res_int_crosstalk}
+
+Inter-channel crosstalk through the AFE PCB was measured by driving the right-channel input with a \SI{1}{\kilo\hertz} tone while the left channel was held idle, and evaluating the leakage into the left channel with Equation~\eqref{eq:crosstalk}. The measured crosstalk at the tone frequency was \SI{-95.5}{\decibel} at unity gain (REC\_29) and \SI{-95.0}{\decibel} at \SI{20}{\decibel} (REC\_55), with the idle channel sitting near the chain noise floor at about \SI{-86}{\decibel FS}; the values are collected in Table~\ref{tab:res_int_crosstalk}. Adding the AFE board to the path therefore degrades the isolation by roughly \SI{5}{\decibel} relative to the codec-only baseline of \SI{-100}{\decibel} (Table~\ref{tab:crosstalk}), consistent with coupling introduced by the two-channel PCB layout, while still leaving an isolation far in excess of the requirement. Only the right-to-left direction was excited in this campaign.
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{Device under test} & \textbf{R$\to$L @ \SI{1}{\kilo\hertz} [dB]} & \textbf{L$\to$R @ \SI{1}{\kilo\hertz} [dB]} \\
+\hline
+Codec only (baseline)      & $-100.1$ & $-100.1$ \\
+AFE + codec (\SI{0}{\decibel})  & $-95.5$  & not excited \\
+AFE + codec (\SI{20}{\decibel}) & $-95.0$  & not excited \\
+\hline
+\end{tabular}
+\caption{Inter-channel crosstalk at \SI{1}{\kilo\hertz}, AFE + codec versus the codec-only baseline (Table~\ref{tab:crosstalk}). The AFE PCB degrades the isolation by about \SI{5}{\decibel}. The left-to-right direction was not excited in this campaign.}
+\label{tab:res_int_crosstalk}
+\end{table}
+
+\subsection{Self-Built Microphone and Current-Source Drive Check}
+\label{sec:res_s3_dummy}
+% REC_96/97: a self-built electret microphone on perforated board, connected to
+% the left channel at 0 dB AFE. Purpose: confirm the 4 mA IEPE current source
+% (Section~\ref{sec:res_afe_current}) could bias and drive a real microphone.
+% Functional confirmation only; low-sensitivity self-built capsule.
+
+The first confirmation that the \SI{4}{\milli\ampere} IEPE current source could bias and drive a real microphone used a self-built electret microphone assembled on a perforated board, connected to the left input channel with the front end at \SI{0}{\decibel} (REC\_96, REC\_97). Driven by the current source of Section~\ref{sec:res_afe_current}, the microphone transduced the played sweep, and deconvolving the valid portion of the left-channel recording recovered a single, well-localized impulse with a short decay and a direct-sound peak at \SI{45.3}{\ms}, consistent with the \SI{39.7}{\ms} codec round-trip plus the arbitrary acoustic propagation delay of the ad-hoc bench setup and the added group delay of the self-built capsule and front end. The right channel remained essentially silent (RMS below \SI{-70}{\decibel FS}), confirming that the driven channel did not couple into the idle one. This established that the current source sustained a functional bias under a real transducer load, and that the complete microphone--current source--front-end--codec path recovered a coherent, deconvolvable signal end-to-end. Because of the low sensitivity and unshielded construction of the perforated-board capsule, the recorded level was low (peak of about \SI{-43}{\decibel FS} within the valid window) and the noise floor was correspondingly high, so this recording is used only as a functional confirmation, not for extracting quantitative metrics.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/REC96_dummymic_acoustic.png}
+  \caption{Self-built microphone driven by the \SI{4}{\milli\ampere} current source: recovered impulse response (top) and windowed frequency response (bottom).}
+  \label{fig:res_dummymic}
+\end{figure}
+
+%The single clean impulse confirms that the current source drove the microphone and that the integrated path passed a coherent signal; the right channel remained silent.
+
+%Because of the unshielded construction of the reference microphone and the use of jumper cables, the recorded noise floor was higher than expected from the IEPE sensors. These recordings were therefore used only for functional confirmation, not for extracting metrics.
+
+
+%=================================================
+%  STAGE 4 — INTEGRATED ACOUSTIC (AFE + CODEC + MICROPHONE)
+%=================================================
+\section{Integrated System Results: Acoustic and Wireless Integration (Stage 4)}
+\label{sec:res_integrated_acoustic}
+% Stage 4: full sensor-to-storage chain in an anechoic chamber. The IEPE-specific
+Before the anechoic measurements, the complete acoustic pipeline, the two microphones, the analog front end, the codec, and the processor, together with the loudspeaker source, was assembled and verified on the bench with a laboratory power supply; this full-pipeline arrangement is shown in Figure~\ref{fig:full_pipeline_bench}.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.78\textwidth]{figures/full_audio_pipeline_lab_power_supply.jpeg}
+  \caption{Complete acoustic acquisition pipeline on the bench, powered by a laboratory supply: the loudspeaker source, the two microphones, the AFE PCB, and the STM32H735G-DK, with the recorded signal shown on the host.}
+  \label{fig:full_pipeline_bench}
+\end{figure}
+
+
+\subsection{Integrated Acoustic Measurement and Pipeline Validation (Anechoic Chamber)}
+
+\label{sec:res_acoustic_validation}
+
+The complete acquisition node was evaluated in an anechoic chamber as shown in Figure \ref{fig:full_system_anechoic}. The test setup comprised the STM32H735G-DK running full-duplex firmware with the WM8994 codec, a two-channel analog front end supplying $\SI{4}{\milli\ampere}$ IEPE current and gain, and two Bruel \& Kjaer Type 4189 free-field microphones (with Type 2671 preamplifiers) as inputs. An Adam Audio A5X near-field monitor positioned at $\SI{1}{\metre}$ served as the acoustic stimulus. Channel gain was set manually on the PCB. The node was powered by the custom supply PCB, ensuring the measured performance reflects real-world operating conditions. This evaluation covers the entire sensor-to-storage chain. While the microphones are reference models, all other hardware components match the integrated node configuration used in the project.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.9\textwidth]{figures/anechoic_system_deploy.png}
+  \caption{System deployed as a standalone node in the anechoic chamber.}
+  \label{fig:full_system_anechoic}
+\end{figure}
+
+The stimulus was a \SI{3}{\second} sweep, authored as a mono file but played through the stereo output path, causing the system to process two samples simultaneously and double the playback rate. To ensure exact waveform reproduction, the impulse response was recovered using regularized \acrshort{fft}-division deconvolution against a reference file downsampled by a factor of two.
+
+Despite the increased playback speed, the recovered impulse response showed a single sharp arrival followed by a short decay, consistent with a free-field measurement. The direct-sound peak was observed at $\SI{42.9}{\ms}$, matching the $\SI{39.7}{\ms}$ codec round-trip time from Section~\ref{sec:res_latency}, plus $\SI{2.9}{\ms}$ for acoustic propagation over $\SI{1}{\metre}$ at $\SI{343}{\metre\per\second}$. The remaining fractional delay is attributed to the analog front-end and microphone group delays. Across five repeats (REC\_61--REC\_65), the direct-sound peak remained stable within sample resolution ($\SI{42.854}{\ms}$, standard deviation below \SI{0.001}{\ms}), confirming that acoustic acquisition is as deterministic as electrical loopback.
+
+Because the sweep was played at double speed, its frequency content was pushed above the \SI{24}{\kilo\hertz} Nyquist limit of the codec. This caused the top octave of the sweep to suffer from aliasing (high frequencies folding back as digital distortion), so these frequencies must be excluded from quantitative analysis.
+
+However, exponential sine-sweep deconvolution isolates the linear direct sound from these artifacts in the time domain. Applying a short (\SI{4}{\ms}) analysis window around the main impulse peak effectively removes aliased artifacts and gates out potential room reflections, yielding a clean, reflection-free magnitude response across the low-to-mid frequency band.
+
+The recovered impulse response and the windowed frequency response are shown in Figure~\ref{fig:acoustic_validation}. The single, well-defined arrival, time-of-flight matching the expected latency, and sample-level repeatability all confirm that the integrated node behaves predictably. This validates the acquisition pipeline based on its internal consistency, without requiring an external reference instrument.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/anechoic_a5x_ir_fr.png}
+  \caption{Recovered acoustic impulse response of the integrated node (Adam~A5X source at \SI{1}{\metre}, anechoic chamber). Top: deconvolved impulse response Bottom: short-window (\SI{4}{\ms}) magnitude response over the low-to-mid band.}
+  \label{fig:acoustic_validation}
+\end{figure}
+
+
+
+\subsection{Analog Front-End Gain Range in the Acoustic Chain}
+
+\label{sec:res_acoustic_gain}
+
+The complete node was exercised over the analog front-end gain range and at two source levels. The per-channel gain was set manually on the PCB, and the system was powered from the custom power-supply PCB; the results are summarized in Table~\ref {tab:afe_gain_sweep}. 
+
+The recovered round-trip latency was invariant to gain and level ($\SI{42.869}{\ms}$, standard deviation \SI{0.010}{\ms} across seven configurations), confirming that the timing path is independent of the analog gain. The recorded level tracked the configured gain as expected, a \SI{-10}{\decibel} front-end step lowered the recorded level by \SI{10.3}{\decibel}, and a \SI{+20}{\decibel} step recovered a \SI{-15}{\decibel} source cleanly. 
+
+The \SI{+40}{\decibel} setting overdrove the converter and clipped on \SI{14}{\percent} of samples, bounding the usable front-end gain below \SI{+40}{\decibel} for this source level. Figure~\ref{fig:acoustic_fr_gain} shows the recovered frequency response across the gain settings; the response shape is preserved across gains, confirming that the analog front end is frequency-flat over its gain range.
+
+At the \SI{+20}{\decibel} and \SI{+40}{\decibel} settings, the noise of the custom power-supply PCB was amplified along with the signal and became clearly noticeable in the recordings. It was not apparent at unity or attenuating gain. This is the integrated-system counterpart of the standalone result of Section~\ref{sec:res_afe_noise_floor}: the dominant supply-conducted disturbance is input-referred and is boosted by each path's gain (the same tones rose by \SI{10}{\decibel} from the \SI{20}{\decibel} to the \SI{40}{\decibel} path in Table~\ref{tab:res_afe_supply_peaks}), so it grows with the front-end gain rather than being generated within the conditioning stage. 
+
+On the real power supply, the usable high-gain settings are therefore limited as much by amplified supply noise as by the clipping ceiling; this is quantified in Section~\ref{sec:res_acoustic_noise}.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{llccc}
+\hline
+\textbf{Recording} & \textbf{Configuration} & \textbf{Latency [ms]} & \textbf{Level [dBFS]} & \textbf{Note} \\
+\hline
+REC\_85 & \SI{0}{\decibel} AFE / \SI{0}{\decibel} spk    & 42.88 & $-15.8$ & clean \\
+REC\_86 & \SI{-10}{\decibel} AFE / \SI{0}{\decibel} spk  & 42.88 & $-26.1$ & clean \\
+REC\_81 & \SI{0}{\decibel} AFE / \SI{-15}{\decibel} spk  & 42.88 & $-39.0$ & clean \\
+REC\_74 & \SI{+20}{\decibel} AFE / \SI{-15}{\decibel} spk& 42.88 & $-17.8$ & clean \\
+REC\_77 & \SI{+40}{\decibel} AFE / \SI{-15}{\decibel} spk& 42.88 & $-5.7$  & clips (\SI{14}{\percent}) \\
+\hline
+\end{tabular}
+\caption{Round-trip latency and recorded level across analog-front-end gain and source-level configurations in the acoustic chain.}
+\label{tab:afe_gain_sweep}
+\end{table}
+% Latency is gain-invariant; the level tracks the configured gain until clipping at \SI{+40}{\decibel}.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/anechoic_FR_vs_gain.png}
+  \caption{Recovered loudspeaker frequency response across the analog-front-end gain and source-level configurations. }
+  \label{fig:acoustic_fr_gain}
+\end{figure}
+%The response shape is preserved across gains (until clipping at \SI{+40}{\decibel}), confirming a frequency-flat front end over its gain range.
+
+\subsection{Harmonic Distortion}
+\label{sec:res_acoustic_thd}
+
+The harmonic distortion of the acquisition electronics was characterized in the electrical stages rather than acoustically: the standalone front end in Section~\ref{sec:res_afe_gain} (a fundamental-to-second-harmonic separation of $\approx\SI{47}{\decibel}$ in the \SI{20}{\decibel} path) and the integrated AFE + codec chain in Section~\ref{sec:res_int_thd}, where the in-range \SI{1}{\kilo\hertz} distortion (\SIrange{0.0069}{0.014}{\percent}) matched the codec baseline of \SI{0.0070}{\percent} (Section~\ref{sec:res_thd}). A calibrated acoustic measurement at \SI{94}{\decibel} SPL was not performed because the calibrator and reference device were not available. Such a measurement would have introduced the distortion of the reference microphone, which is a property of that transducer rather than of the developed acquisition chain; the electrical measurements already accounted for the distortion contributed by the front end and codec, so the calibrated-SPL test is not required to characterize the system.
+
+\subsection{Full-Chain Frequency Response}
+\label{sec:res_acoustic_fr}
+The frequency response of the acquisition chain is established by two complementary measurements: the flat electrical response of the integrated AFE + codec in Section~\ref{sec:res_int_fr} (flat to within \SI{0.1}{\decibel} from \SI{50}{\hertz} to \SI{19}{\kilo\hertz}, independent of gain), and the anechoic-chamber measurement of Section~\ref{sec:res_acoustic_validation}, which recovers a clean, physically consistent impulse and frequency response through the complete sensor-to-storage path. A separate measurement of the microphone's frequency response using a flat, calibrated acoustic source was not performed because the required source was not available. The reference microphones used (Bruel\,\&\,Kjaer Type~4189) have a manufacturer-specified flat free-field response over the audio band, so the transducer does not shape the chain response in the band of interest.
+
+\subsection{Input-Referred Noise Floor and Effective Dynamic Range}
+\label{sec:res_acoustic_noise}
+
+In contrast to the electrical characterization conducted in Stages~1--3, which utilized USB power, the integrated node in this stage was powered by the custom power-supply PCB. This change enables assessment of the influence of real-world power conditions on acoustic measurements. 
+
+\subsubsection{Measured Baseline Noise and Gain Scaling} 
+
+In the absence of an acoustic source and with the front end set to \SI{0}{\decibel}, the baseline noise floor of the fully assembled system is \SI{-68.9}{\decibel FS} (REC\_91). The measured noise floor increases to \SI{-28.3}{\decibel FS} at \SI{+20}{\decibel} and \SI{-8.4}{\decibel FS} at \SI{+40}{\decibel} (Figure~\ref{fig:acoustic_noise_gain}). The \SI{20}{\decibel} increment between these settings corresponds precisely to the gain step.
+
+ \subsubsection{Ground Loop Coupling} 
+
+Connecting the power-supply PCB ground directly to the STM32 ground (REC\_93) increases the broadband noise by \SI{5.9}{\decibel} to \SI{-63.0}{\decibel FS}. As illustrated in Figure~\ref{fig:acoustic_noise}, the intrinsic and ground-loop spectra are similar below \SI{1}{\kilo\hertz}, but diverge significantly above \SI{2}{\kilo\hertz}, where the ground loop introduces a \SI{16}{\decibel} peak of high-frequency switching noise. 
+
+\subsubsection{Isolating the Noise Source: Custom PCB vs. Power Bank}
+
+ A controlled A/B test was conducted by varying only the STM32 power source to evaluate the noise contribution of the custom power PCB: \begin{itemize} \item \textbf{Custom \SI{7}{\volt} Supply PCB (REC\_07, REC\_17):} The idle noise floor sat at roughly \SIrange{-40}{-45}{\decibel FS}, dominated by a massive \SI{50}{\hertz} mains hum standing \SI{40}{\decibel} above the broadband floor. \item \textbf{Battery Power Bank (REC\_32):} Replacing the PCB with a battery dropped the floor to \SI{-66}{\decibel FS}, a significant \SIrange{21}{25}{\decibel} reduction. As Figure~\ref{fig:psu_noise} illustrates, this completely eliminated the mains-hum comb and dropped the broadband spectral density by \SI{20}{\decibel}. \end{itemize}
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.9\textwidth]{figures/psu_noise_compare.png}
+  \caption{Idle noise-floor power spectral density with no acoustic source, for the node powered from the custom \SI{7}{\volt} supply PCB (REC\_07, REC\_17) versus a battery power bank (REC\_32); only the power source differs. }
+  \label{fig:psu_noise}
+\end{figure}
+
+%The PCB supply raises the floor by \SIrange{21}{25}{\decibel} and injects a \SI{50}{\hertz} mains-hum comb and a $\approx\SI{20}{\decibel}$ higher broadband density, isolating the supply as the dominant noise source.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.9\textwidth]{figures/anechoic_noise_floor.png}
+  \caption{Noise-floor power spectral density with no acoustic source and the front end at \SI{0}{\decibel}: intrinsic chain (REC\_91) versus the power-supply-to-STM32 ground loop (REC\_93). }
+  \label{fig:acoustic_noise}
+\end{figure}
+%The ground connection injects high-frequency switching noise above \SI{2}{\kilo\hertz}.
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.9\textwidth]{figures/anechoic_noise_vs_gain.png}
+  \caption{Noise floor versus analog-front-end gain with no acoustic source, powered from the custom power-supply PCB. }
+  \label{fig:acoustic_noise_gain}
+\end{figure}
+%The floor rises with gain and the supply-conducted content (peak near \SI{13}{\kilo\hertz}) becomes increasingly prominent; the \SI{20}{\decibel} rise from the \SI{+20}{\decibel} to the \SI{+40}{\decibel} setting matches the gain step, confirming the noise is input-referred.
+%======================================================
+%Need to review this data:
+%======================================================
+
+\subsection{Reverberation Time of the Receiving Room}
+\label{sec:res_acoustic_rt}
+
+The reverberation time of the receiving room was measured using the acquisition nodes as a distributed acoustic instrument in a two-room transmission suite (separate from the anechoic validation described earlier). Both this measurement and the sound-insulation measurement in Section~\ref{sec:res_acoustic_isolation} used the entire distributed system, not just a single node. 
+
+All core components developed in this thesis were integrated and used in these tests: the custom PCB provided power, batteries enabled full system portability, the Launchxl-CC1352PX board handled wireless RF communication, and the STM32 managed audio acquisition and interfaced with the AFE PCB. Because only a single analog-front-end PCB was built, the campaign used one fully deployed acquisition node, the STM32 with the AFE, the two microphones, and the custom power supply, together with a second, battery-powered node whose STM32 and Launchxl-CC1352PX were supplied from a power bank and which acted solely as the synchronized source driving the loudspeaker. 
+
+The two nodes were connected over the wireless link described in \ref{sec:results_rf_link} and synchronized (see \ref{sec:results_sync} for synchronization details) so that source playback and recording ran on a common time base, so the campaign exercised the complete end-to-end system, acquisition chain, distributed nodes, synchronization link, and all hardware elements together, rather than only the audio chain in isolation. The sound source was an ADAM~A5X studio monitor driven by the second node. The measurement microphones were two Bruel\,\&\,Kjaer Type~4189s with Type~2671 preamplifiers positioned \SI{1}{\metre} apart; the two channels of the analog front end captured these two spatial positions, both fed to the single STM32 acquisition node at \SI{0}{\decibel} gain. The STM32 was connected to the Launchxl-CC1352PX with jumpers using the system described in \ref{fig:rf_ir_nodes}. Because only one acquisition node was available, the microphones and the loudspeaker were repositioned by hand between the two measurements, as described below. Each recording was made at \SI{48}{\kilo\hertz}, \mbox{16-bit} resolution, and lasted \SI{20}{\second}. Figure \ref{fig:full_system} shows the full integrated system used for these tests.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/electronics_system_integration.jpeg}
+  \caption{Full system integration.}
+  \label{fig:full_system}
+\end{figure}
+
+Reverberation time was measured using the interrupted-noise method, with the loudspeaker moved into the receiving room so that the source and microphones were both in the room under test. A pink-noise excitation was switched off, and the resulting decay was recorded. This process produced four decays per file, across three files and two channels, resulting in 24 decays per third-octave band. Each decay was band-filtered, truncated at the noise floor using the Lundeby method, then backward-integrated (Schroeder) and fitted over the \SIrange{-5}{-35}{\decibel} interval for $T_{30}$, with $T_{20}$ used as a fallback if needed.
+
+Because the decays are short ($\approx\SI{1.5}{\second}$), the $T_{30}$ estimator was cross-checked by running \texttt{calcT60\_bands.m}, a band-wise reverberation-time routine provided by Prof.\ Ulf~Peter~Svensson, on the identical 24 decays
+exported from the Python pipeline. The in-house Lundeby estimator, with this input, measured an average of \SI{0.33}{\second} higher than \texttt{calcT60\_bands} across \SIrange{400}{4000}{\hertz}. \texttt{calcT60\_bands} also matched more closely with an independent commercial-analyzer reference (mean absolute difference \SI{0.37}{\second} compared to \SI{0.63}{\second}). Since this discrepancy does not depend on room or microphone position, it reveals a genuine estimator bias—the short-window Schroeder integral over-integrates the noise tail. Therefore, the \texttt{calcT60\_bands} value was chosen as the reference reverberation time. Figure~\ref{fig:rt_estimator} compares the two estimators with the reference.
+
+The adopted reverberation time decreases steadily with frequency, from $\approx\SI{2.1}{\second}$ near \SIrange{315}{400}{\hertz} to \SI{0.72}{\second} at \SI{5}{\kilo\hertz}. This trend is expected for a hard, mostly empty room, where absorption increases with frequency (see Table~\ref{tab:rt} and Figure~\ref{fig:rt}). $T_{20}$ and $T_{30}$ values agree within fitting uncertainty for every usable band, indicating single-slope decays. The measured curve matches the shape and range of the commercial-analyzer reference from a different suite but is offset higher by \SIrange{0.4}{0.6}{\second}. Since reverberation time depends on the specific room and measurement positions, this offset reflects the difference in acoustic space, not an instrument error. The \SIrange{100}{125}{\hertz} bands are unreliable with any method—the \SI{1.5}{\second} measurement window is too short for long low-frequency decays, and the signal-to-noise ratio drops to $\approx\SI{14}{\decibel}$. These results are included for completeness only.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/T30_estimator_compare.png}
+  \caption{Reverberation-time estimator cross-check on the identical 24 interrupted-noise decays: the in-house Lundeby estimator, the reference routine \texttt{calcT60\_bands.m}, and an independent commercial-analyzer reference. }
+  \label{fig:rt_estimator}
+\end{figure}
+%The Lundeby estimator is biased $\approx\SI{0.33}{\second}$ high; \texttt{calcT60\_bands} agrees more closely with the reference and was adopted.
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/reverb_time.png}
+  \caption{Receiving-room reverberation time ($T_{30}$ and $T_{20}$) measured by the distributed nodes, against the commercial-analyzer reference. }
+  \label{fig:rt}
+\end{figure}
+%The $\approx\SIrange{0.4}{0.6}{\second}$ offset reflects a different room and measurement positions, not an instrument error.
+\begin{table}[h!]
+\centering
+\begin{tabular}{ccccc}
+\hline
+\textbf{Band [Hz]} & \textbf{$T_{30}$ [s] (adopted)} & \textbf{$T_{30}$ [s] (Lundeby)} & \textbf{SNR [dB]} & \textbf{Ref. $T_{30}$ [s]} \\
+\hline
+125  & 1.22 & 2.80 & 15.0 & 2.01 \\
+250  & 1.90 & 2.20 & 26.3 & 1.80 \\
+500  & 1.79 & 2.04 & 28.7 & 1.39 \\
+1000 & 1.65 & 1.87 & 26.0 & 1.18 \\
+2000 & 1.35 & 1.66 & 23.5 & 1.06 \\
+4000 & 1.11 & 1.44 & 21.1 & 1.00 \\
+\hline
+\end{tabular}
+\caption{Receiving-room reverberation time at octave centres: the adopted \texttt{calcT60\_bands} $T_{30}$, the in-house Lundeby $T_{30}$, the per-band SNR, and the commercial-analyzer reference. }
+\label{tab:rt}
+\end{table}
+
+%The adopted estimator removes the $\approx\SI{0.33}{\second}$ Lundeby high bias.
+
+\subsection{Two-Room Sound Insulation}
+\label{sec:res_acoustic_isolation}
+
+The same two-room suite was used to evaluate the nodes as a sound-insulation instrument across a composite test partition of plywood and rubber (panel area $S=\SI{1.467}{\metre\squared}$) mounted between the source and receiving rooms (receiving-room volume $V=\SI{105.16}{\metre\cubed}$). A pink-noise signal was played in the source room, and the steady-state third-octave band levels were recorded in each room with the same microphones and \SI{0}{\decibel} gain. Because only one node carried the analog front end, the two microphones were moved by hand from the source room to the receiving room to record $L_1$ and $L_2$ in turn, while the battery-powered second node drove the loudspeaker in the source room as a wireless-synchronized source held at a fixed level. 
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.9\textwidth]{figures/full_system_deployment_sound_insulation.png}
+  \caption{Two-room deployment: the two Bruel\,\&\,Kjaer Type~4189 microphones on stands for the receiving room (left), the loudspeaker source, and the acquisition node, with the composite test partition against the wall (right).}
+  \label{fig:deployment_insulation}
+\end{figure}
+
+Because both rooms were measured with identical transducers and gain, the level difference $D = L_1 - L_2$ is valid in relative terms with no absolute SPL calibration, and the standard derived quantities follow: the equivalent absorption area $A = 0.16\,V/T$ (using the adopted reverberation time), the normalized level differences $D_\mathrm{n} = D - 10\log_{10}(A/A_0)$ and $D_\mathrm{nT} = D + 10\log_{10}(T/T_0)$, and the apparent sound reduction index $R' = D + 10\log_{10}(S/A)$.
+
+The measurement is limited by the acquisition node's dynamic range, not by the partition. Figure~\ref{fig:bg_margin} shows the receiving-room signal margin over the node background and self-noise: it satisfies the ISO~16283 \SI{10}{\decibel} criterion only up to \SI{250}{\hertz}, lies in the \SIrange{6}{10}{\decibel} background-corrected range at \SI{315}{\hertz}, and falls below \SI{6}{\decibel} from \SI{400}{\hertz} upward, reaching the noise floor ($\approx\SI{0}{\decibel}$ margin) by \SI{2}{\kilo\hertz}. In those upper bands, the recorded receiving-room level is the node noise floor itself, so the reported $D$ and $R'$ are lower bounds and the true insulation is at least the value shown. A distributed exponential-sine-sweep route through the wall, whose matched-filter processing gain would nominally add \SIrange{15}{20}{\decibel} of effective SNR, was also attempted but deconvolved to an impulse-to-noise ratio of only $\approx\SI{9}{\decibel}$ with no usable impulse, its upper-frequency half lost in the wall and node noise floor, so the sweep is bounded by the same dynamic-range wall and does not recover the mid/high bands. This is the transmission-loss counterpart of the \mbox{16-bit} dynamic-range ceiling: the partition attenuates the transmitted signal below the front-end and converter noise before those bands can be resolved at a \SI{0}{\decibel} source level.
+
+Over the bands where the margin is adequate (\SIrange{100}{315}{\hertz}), the level difference rises from \SI{45.8}{\decibel} to \SI{59.9}{\decibel} and the apparent sound reduction index from \SI{39.7}{\decibel} to \SI{53.1}{\decibel} (Table~\ref{tab:insulation} and Figure~\ref{fig:rprime}), values that are physically plausible for the composite panel and consistent in shape with the commercial-analyser reference, whose $D$ rose from \SI{34}{\decibel} to \SI{52}{\decibel} across the band. That reference held the receiving room \SIrange{26}{52}{\decibel} above background in every band by driving the source to \SIrange{90}{113}{\decibel} SPL, whereas the \SI{0}{\decibel} source used here gave only \SI{16}{\decibel} of margin at \SI{100}{\hertz}, an independent confirmation of both the noise-floor diagnosis and its remedy. Recovering the mid- and high-frequency insulation bands therefore requires raising the transmitted level above the node noise floor, by increasing the source level (the reference required $\approx\SI{113}{\decibel}$ SPL) and/or the receiving-node gain; it does not require any change to the acquisition electronics, which are shown here to be insulation-instrument-capable at low frequency and noise-floor-limited, not distortion- or bandwidth-limited, above it.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/background_margin.png}
+  \caption{Receiving-room signal margin over the node background/self-noise.}
+  \label{fig:bg_margin}
+\end{figure}
+
+%The distributed nodes at \SI{0}{\decibel} source level clear the ISO~16283 \SI{10}{\decibel} criterion only below \SI{315}{\hertz}; above it the transmitted signal reaches the node noise floor, so the insulation there is a lower bound. The commercial-analyser reference stayed \SIrange{26}{52}{\decibel} clear by driving the source to \SIrange{90}{113}{\decibel} SPL.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/Rprime.png}
+  \caption{Apparent sound reduction index $R'$ of the test partition. }
+  \label{fig:rprime}
+\end{figure}
+
+%Filled markers are measured values (\SIrange{100}{315}{\hertz}); open markers with arrows are noise-floor lower bounds ($R' \geq$ value) above \SI{315}{\hertz}. The reference curve is a different partition and suite, shown for behavioral comparison only.
+\begin{table}[h!]
+\centering
+\begin{tabular}{ccccl}
+\hline
+\textbf{Band [Hz]} & \textbf{$D=L_1-L_2$ [dB]} & \textbf{$R'$ [dB]} & \textbf{Margin [dB]} & \textbf{Type} \\
+\hline
+100  & 45.8 & 39.7 & 16.4 & measured \\
+160  & 49.5 & 42.6 & 14.6 & measured \\
+250  & 55.0 & 47.8 & 11.4 & measured \\
+315  & 59.9 & 53.1 & 7.8  & corrected \\
+500  & 62.5 & 55.0 & 4.4  & lower bound \\
+1000 & 59.0 & 51.1 & 3.7  & lower bound \\
+2000 & 57.2 & 48.8 & 0.8  & lower bound \\
+4000 & 56.0 & 47.0 & 0.5  & lower bound \\
+\hline
+\end{tabular}
+\caption{Two-room level difference $D$ and apparent sound reduction index $R'$ per third-octave band, with the receiving-room margin over background and the band validity. Bands above \SI{315}{\hertz} are noise-floor lower bounds.}
+\label{tab:insulation}
+\end{table}
